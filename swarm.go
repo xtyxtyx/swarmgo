@@ -13,6 +13,7 @@ type Swarm struct {
 	client *openai.Client
 }
 
+// NewSwarm initializes a new Swarm instance with an OpenAI client
 func NewSwarm(apiKey string) *Swarm {
 	client := openai.NewClient(apiKey)
 	return &Swarm{
@@ -20,6 +21,7 @@ func NewSwarm(apiKey string) *Swarm {
 	}
 }
 
+// getChatCompletion requests a chat completion from the OpenAI API
 func (s *Swarm) getChatCompletion(
 	ctx context.Context,
 	agent *Agent,
@@ -30,7 +32,7 @@ func (s *Swarm) getChatCompletion(
 	debug bool,
 ) (openai.ChatCompletionResponse, error) {
 
-	// Prepare the messages
+	// Prepare the initial system message with agent instructions
 	instructions := agent.Instructions
 	if agent.InstructionsFunc != nil {
 		instructions = agent.InstructionsFunc(contextVariables)
@@ -42,14 +44,14 @@ func (s *Swarm) getChatCompletion(
 		},
 	}, history...)
 
-	// Build function definitions
+	// Build function definitions from agent's functions
 	var functionDefs []openai.FunctionDefinition
 	for _, af := range agent.Functions {
 		def := FunctionToDefinition(af)
 		functionDefs = append(functionDefs, def)
 	}
 
-	// Prepare the request
+	// Prepare the chat completion request
 	model := agent.Model
 	if modelOverride != "" {
 		model = modelOverride
@@ -64,7 +66,7 @@ func (s *Swarm) getChatCompletion(
 		log.Printf("Getting chat completion for: %+v\n", messages)
 	}
 
-	// Call the API
+	// Call the OpenAI API to get a chat completion
 	resp, err := s.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, err
@@ -73,6 +75,7 @@ func (s *Swarm) getChatCompletion(
 	return resp, nil
 }
 
+// handleFunctionCall processes a function call from the chat completion
 func (s *Swarm) handleFunctionCall(
 	ctx context.Context,
 	functionCall *openai.FunctionCall,
@@ -83,6 +86,7 @@ func (s *Swarm) handleFunctionCall(
 	functionName := functionCall.Name
 	argsJSON := functionCall.Arguments
 
+	// Parse the function call arguments
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return Response{}, err
@@ -92,7 +96,7 @@ func (s *Swarm) handleFunctionCall(
 		log.Printf("Processing function call: %s with arguments %v\n", functionName, args)
 	}
 
-	// Find the function
+	// Find the corresponding function in the agent's functions
 	var functionFound *AgentFunction
 	for _, af := range agent.Functions {
 		if af.Name == functionName {
@@ -101,6 +105,7 @@ func (s *Swarm) handleFunctionCall(
 		}
 	}
 
+	// Handle case where function is not found
 	if functionFound == nil {
 		errorMessage := fmt.Sprintf("Error: Tool %s not found.", functionName)
 		if debug {
@@ -117,22 +122,20 @@ func (s *Swarm) handleFunctionCall(
 		}, nil
 	}
 
-	// Call the function
+	// Execute the function and update context variables
 	result := functionFound.Function(args, contextVariables)
-
-	// Update context variables
 	for k, v := range result.ContextVariables {
 		contextVariables[k] = v
 	}
 
-	// Create function result message
+	// Create a message with the function result
 	functionResultMessage := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleFunction,
 		Name:    functionName,
 		Content: result.Value,
 	}
 
-	// Collect the partial response
+	// Return the partial response with the function result
 	partialResponse := Response{
 		Messages:         []openai.ChatCompletionMessage{functionResultMessage},
 		Agent:            result.Agent,
@@ -142,6 +145,7 @@ func (s *Swarm) handleFunctionCall(
 	return partialResponse, nil
 }
 
+// Run executes the chat interaction loop with the agent
 func (s *Swarm) Run(
 	ctx context.Context,
 	agent *Agent,
@@ -163,9 +167,11 @@ func (s *Swarm) Run(
 	initLen := len(messages)
 	turns := 0
 
+	// Main loop for chat interaction
 	for turns < maxTurns && activeAgent != nil {
 		turns++
 
+		// Get a chat completion from the API
 		resp, err := s.getChatCompletion(
 			ctx,
 			activeAgent,
@@ -190,15 +196,16 @@ func (s *Swarm) Run(
 			log.Printf("Received completion: %+v\n", message)
 		}
 
+		// Update message role and name
 		message.Role = openai.ChatMessageRoleAssistant
 		message.Name = activeAgent.Name
 
 		history = append(history, message)
 
-		// Keep handling function calls
+		// Handle function calls if any
 		for {
 			if message.FunctionCall != nil && executeTools {
-				// Handle function call
+				// Process the function call
 				partialResponse, err := s.handleFunctionCall(
 					ctx,
 					message.FunctionCall,
@@ -249,7 +256,7 @@ func (s *Swarm) Run(
 				history = append(history, message)
 
 			} else {
-				// No more function calls
+				// Exit the loop if no more function calls
 				break
 			}
 		}
@@ -263,6 +270,7 @@ func (s *Swarm) Run(
 		}
 	}
 
+	// Return the final response
 	return Response{
 		Messages:         history[initLen:],
 		Agent:            activeAgent,

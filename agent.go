@@ -1,18 +1,20 @@
 package swarmgo
 
+// Agent represents an entity with specific attributes and behaviors.
 type Agent struct {
-	Name              string
-	Model             string
-	Instructions      string
-	InstructionsFunc  func(contextVariables map[string]interface{}) string
-	Functions         []AgentFunction
-	ToolChoice        string
-	ParallelToolCalls bool
+	Name              string                                               // The name of the agent.
+	Model             string                                               // The model.
+	Instructions      string                                               // Static instructions for the agent.
+	InstructionsFunc  func(contextVariables map[string]interface{}) string // Function to generate dynamic instructions based on context.
+	Functions         []AgentFunction                                      // A list of functions the agent can perform.
+	ToolChoice        string                                               // The tool or method chosen by the agent.
+	ParallelToolCalls bool                                                 // Indicates if the agent can call tools in parallel.
 }
 
+// AgentFunction represents a function that an agent can perform.
 type AgentFunction struct {
-	Name        string
-	Description string
-	Parameters  map[string]interface{}
-	Function    func(args map[string]interface{}, contextVariables map[string]interface{}) Result
+	Name        string                                                                            // The name of the function.
+	Description string                                                                            // A brief description of what the function does.
+	Parameters  map[string]interface{}                                                            // Parameters required by the function.
+	Function    func(args map[string]interface{}, contextVariables map[string]interface{}) Result // The actual function implementation.
 }
