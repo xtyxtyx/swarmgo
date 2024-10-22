@@ -9,8 +9,14 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// OpenAIClient defines the methods used from the OpenAI client
+type OpenAIClient interface {
+    CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+}
+
+// Swarm represents the main structure
 type Swarm struct {
-	client *openai.Client
+    client OpenAIClient
 }
 
 // NewSwarm initializes a new Swarm instance with an OpenAI client
