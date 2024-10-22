@@ -8,18 +8,19 @@ These primitives are powerful enough to express rich dynamics between tools and 
 
 ## Table of Contents
 
-- Why SwarmGo
-- Installation
-- Quick Start
-- Usage
-- Creating an Agent
-- Running the Agent
-- Adding Functions (Tools)
-- Using Context Variables
-- Agent Handoff
-- Examples
-- Contributing
-- License
+- [Why SwarmGo](#why-swarmgo)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Creating an Agent](#creating-an-agent)
+  - [Running the Agent](#running-the-agent)
+  - [Adding Functions (Tools)](#adding-functions-tools)
+  - [Using Context Variables](#using-context-variables)
+- [Agent Handoff](#agent-handoff)
+- [Examples](#examples)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ## Why SwarmGo
 
@@ -83,11 +84,11 @@ agent := &swarmgo.Agent{
 }
 ```
 
-Name: Identifier for the agent (no spaces or special characters).
-Instructions: The system prompt or instructions for the agent.
-Model: The OpenAI model to use (e.g., "gpt-4o").
+- Name: Identifier for the agent (no spaces or special characters).
+- Instructions: The system prompt or instructions for the agent.
+- Model: The OpenAI model to use (e.g., "gpt-4o").
 
-## Running the Agent
+### Running the Agent
 
 To interact with the agent, use the Run method:
 
@@ -105,7 +106,7 @@ if err != nil {
 fmt.Println(response.Messages[len(response.Messages)-1].Content)
 ```
 
-## Adding Functions (Tools)
+### Adding Functions (Tools)
 
 Agents can use functions to perform specific tasks. Functions are defined and then added to an agent.
 
@@ -142,7 +143,8 @@ agent.Functions = []swarmgo.AgentFunction{
 	},
 }
 ```
-## Using Context Variables
+
+### Using Context Variables
 
 Context variables allow you to pass information between function calls and agents.
 
@@ -160,7 +162,7 @@ func instructions(contextVariables map[string]interface{}) string {
 agent.InstructionsFunc = instructions
 ```
 
-## Agent Handoff
+### Agent Handoff
 
 Agents can hand off conversations to other agents. This is useful for delegating tasks or escalating when an agent is unable to handle a request.
 
