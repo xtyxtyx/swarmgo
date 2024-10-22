@@ -24,7 +24,8 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 	// Create a new reader to read user input from the standard input
 	reader := bufio.NewReader(os.Stdin)
 
-	// Start an infinite loop to continuously read user input and process it
+	activeAgent := agent
+
 	for {
 		// Prompt the user for input
 		fmt.Print("\033[90mUser\033[0m: ")
@@ -41,10 +42,7 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 			Content: userInput,
 		})
 
-		// Call the client's Run method to process the messages and get a response
-		response, err := client.Run(ctx, agent, messages, nil, "", false, false, 5, true)
-		
-		// If there is an error, log it and continue to the next iteration
+		response, err := client.Run(ctx, activeAgent, messages, nil, "", false, false, 5, true)
 		if err != nil {
 			log.Printf("Error: %v", err)
 			continue
@@ -55,8 +53,10 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 		
 		// Append the response messages to the messages slice
 		messages = append(messages, response.Messages...)
-		
-		// Update the agent with the new state from the response
-		agent = response.Agent
+
+		if response.Agent != nil && response.Agent.Name != activeAgent.Name {
+			fmt.Printf("Transferring conversation to %s.\n", response.Agent.Name)
+			activeAgent = response.Agent
+		}
 	}
 }
