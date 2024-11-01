@@ -68,9 +68,12 @@ func TestHandleFunctionCall(t *testing.T) {
 	sw := NewSwarm("test-api-key")
 	ctx := context.Background()
 
-	functionCall := &openai.FunctionCall{
-		Name:      "testFunction",
-		Arguments: `{"arg1": "value1"}`,
+	toolCall := openai.ToolCall{
+		ID:      "testFunction",
+		Function: openai.FunctionCall{
+			Name:      "testFunction",
+			Arguments: `{"arg1": "value1"}`,
+		},
 	}
 
 	agentFunction := AgentFunction{
@@ -90,11 +93,11 @@ func TestHandleFunctionCall(t *testing.T) {
 
 	contextVariables := map[string]interface{}{}
 
-	response, err := sw.handleFunctionCall(ctx, functionCall, agent, contextVariables, false)
+	response, err := sw.handleToolCall(ctx, &toolCall, agent, contextVariables, false)
 
 	assert.NoError(t, err)
 	assert.Len(t, response.Messages, 1)
-	assert.Equal(t, "function", response.Messages[0].Role)
+	assert.Equal(t, "tool", response.Messages[0].Role)
 	assert.Equal(t, "testFunction", response.Messages[0].Name)
 	assert.Equal(t, "Function executed successfully", response.Messages[0].Content)
 }
@@ -104,9 +107,12 @@ func TestHandleFunctionCallFunctionNotFound(t *testing.T) {
 	sw := NewSwarm("test-api-key")
 	ctx := context.Background()
 
-	functionCall := &openai.FunctionCall{
-		Name:      "nonExistentFunction",
-		Arguments: `{}`,
+	toolCall := openai.ToolCall{
+		ID:      "nonExistentFunction",
+		Function: openai.FunctionCall{
+			Name:      "nonExistentFunction",
+			Arguments: `{}`,
+		},
 	}
 
 	agent := &Agent{
@@ -116,7 +122,7 @@ func TestHandleFunctionCallFunctionNotFound(t *testing.T) {
 
 	contextVariables := map[string]interface{}{}
 
-	response, err := sw.handleFunctionCall(ctx, functionCall, agent, contextVariables, false)
+	response, err := sw.handleToolCall(ctx, &toolCall, agent, contextVariables, false)
 
 	assert.NoError(t, err)
 	assert.Len(t, response.Messages, 1)
