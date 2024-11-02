@@ -4,24 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-
 	openai "github.com/sashabaranov/go-openai"
+	"log"
 )
 
 // OpenAIClient defines the methods used from the OpenAI client
 type OpenAIClient interface {
-    CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 }
 
 // Swarm represents the main structure
 type Swarm struct {
-    client OpenAIClient
+	client OpenAIClient
 }
 
 // NewSwarm initializes a new Swarm instance with an OpenAI client
 func NewSwarm(apiKey string) *Swarm {
 	client := openai.NewClient(apiKey)
+	return &Swarm{
+		client: client,
+	}
+}
+
+func NewSwarmWithConfig(config ClientConfig) *Swarm {
+	openaiConfig := openai.DefaultConfig(config.AuthToken)
+	openaiConfig.BaseURL = config.BaseURL
+	client := openai.NewClientWithConfig(openaiConfig)
 	return &Swarm{
 		client: client,
 	}

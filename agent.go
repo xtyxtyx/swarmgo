@@ -4,6 +4,8 @@ package swarmgo
 type Agent struct {
 	Name              string                                               // The name of the agent.
 	Model             string                                               // The model.
+	BaseURL           string                                               // API URLv1
+	AuthToken         string                                               // API Key
 	Instructions      string                                               // Static instructions for the agent.
 	InstructionsFunc  func(contextVariables map[string]interface{}) string // Function to generate dynamic instructions based on context.
 	Functions         []AgentFunction                                      // A list of functions the agent can perform.
