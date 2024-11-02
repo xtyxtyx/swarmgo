@@ -58,11 +58,16 @@ func (s *Swarm) getChatCompletion(
 		},
 	}, history...)
 
-	// Build function definitions from agent's functions
-	var functionDefs []openai.FunctionDefinition
+	// Build tool definitions from agent's functions
+	var toolDefs []openai.FunctionDefinition
+	var tools []openai.Tool
 	for _, af := range agent.Functions {
 		def := FunctionToDefinition(af)
-		functionDefs = append(functionDefs, def)
+		toolDefs = append(toolDefs, def)
+		tools = append(tools, openai.Tool{
+			Type:     "function",
+			Function: &def,
+		})
 	}
 
 	// Prepare the chat completion request
@@ -71,9 +76,9 @@ func (s *Swarm) getChatCompletion(
 		model = modelOverride
 	}
 	req := openai.ChatCompletionRequest{
-		Model:     model,
-		Messages:  messages,
-		Functions: functionDefs,
+		Model:    model,
+		Messages: messages,
+		Tools:    tools,
 	}
 
 	if debug {
@@ -89,31 +94,32 @@ func (s *Swarm) getChatCompletion(
 	return resp, nil
 }
 
-// handleFunctionCall processes a function call from the chat completion
-func (s *Swarm) handleFunctionCall(
+// handleToolCall processes a tool call from the chat completion
+func (s *Swarm) handleToolCall(
 	ctx context.Context,
-	functionCall *openai.FunctionCall,
+	toolCall *openai.ToolCall,
 	agent *Agent,
 	contextVariables map[string]interface{},
 	debug bool,
 ) (Response, error) {
-	functionName := functionCall.Name
-	argsJSON := functionCall.Arguments
+	toolName := toolCall.Function.Name
+	argsJSON := toolCall.Function.Arguments
+	toolCallID := toolCall.ID // Extract the tool_call_id
 
-	// Parse the function call arguments
+	// Parse the tool call arguments
 	var args map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return Response{}, err
 	}
 
 	if debug {
-		log.Printf("Processing function call: %s with arguments %v\n", functionName, args)
+		log.Printf("Processing tool call: %s with arguments %v\n", toolName, args)
 	}
 
 	// Find the corresponding function in the agent's functions
 	var functionFound *AgentFunction
 	for _, af := range agent.Functions {
-		if af.Name == functionName {
+		if af.Name == toolName {
 			functionFound = &af
 			break
 		}
@@ -121,16 +127,17 @@ func (s *Swarm) handleFunctionCall(
 
 	// Handle case where function is not found
 	if functionFound == nil {
-		errorMessage := fmt.Sprintf("Error: Tool %s not found.", functionName)
+		errorMessage := fmt.Sprintf("Error: Tool %s not found.", toolName)
 		if debug {
 			log.Println(errorMessage)
 		}
 		return Response{
 			Messages: []openai.ChatCompletionMessage{
 				{
-					Role:    "tool",
-					Name:    functionName,
-					Content: errorMessage,
+					Role:       "tool",
+					Name:       toolName,
+					Content:    errorMessage,
+					ToolCallID: toolCallID, // Include the tool_call_id here
 				},
 			},
 		}, nil
@@ -142,16 +149,17 @@ func (s *Swarm) handleFunctionCall(
 		contextVariables[k] = v
 	}
 
-	// Create a message with the function result
-	functionResultMessage := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleFunction,
-		Name:    functionName,
-		Content: result.Value,
+	// Create a message with the tool result
+	toolResultMessage := openai.ChatCompletionMessage{
+		Role:       openai.ChatMessageRoleTool,
+		Name:       toolName,
+		Content:    result.Value,
+		ToolCallID: toolCallID, // Include the tool_call_id here
 	}
 
-	// Return the partial response with the function result
+	// Return the partial response with the tool result
 	partialResponse := Response{
-		Messages:         []openai.ChatCompletionMessage{functionResultMessage},
+		Messages:         []openai.ChatCompletionMessage{toolResultMessage},
 		Agent:            result.Agent,
 		ContextVariables: result.ContextVariables,
 	}
@@ -216,30 +224,33 @@ func (s *Swarm) Run(
 
 		history = append(history, message)
 
-		// Handle function calls if any
+		// Handle tool calls if any
+		// Inside the main loop in Run()
 		for {
-			if message.FunctionCall != nil && executeTools {
-				// Process the function call
-				partialResponse, err := s.handleFunctionCall(
-					ctx,
-					message.FunctionCall,
-					activeAgent,
-					contextVariables,
-					debug,
-				)
-				if err != nil {
-					return Response{}, err
+			if len(message.ToolCalls) > 0 && executeTools {
+				for _, toolCall := range message.ToolCalls {
+					// Process each tool call
+					partialResponse, err := s.handleToolCall(
+						ctx,
+						&toolCall,
+						activeAgent,
+						contextVariables,
+						debug,
+					)
+					if err != nil {
+						return Response{}, err
+					}
+
+					history = append(history, partialResponse.Messages...)
+					for k, v := range partialResponse.ContextVariables {
+						contextVariables[k] = v
+					}
+					if partialResponse.Agent != nil {
+						activeAgent = partialResponse.Agent
+					}
 				}
 
-				history = append(history, partialResponse.Messages...)
-				for k, v := range partialResponse.ContextVariables {
-					contextVariables[k] = v
-				}
-				if partialResponse.Agent != nil {
-					activeAgent = partialResponse.Agent
-				}
-
-				// Get the assistant's response after function result
+				// Get the assistant's response after all tool results
 				resp, err := s.getChatCompletion(
 					ctx,
 					activeAgent,
@@ -268,14 +279,13 @@ func (s *Swarm) Run(
 				message.Name = activeAgent.Name
 
 				history = append(history, message)
-
 			} else {
-				// Exit the loop if no more function calls
+				// Exit the loop if no more tool calls
 				break
 			}
 		}
 
-		// Break the outer loop if the assistant didn't make a function call
+		// Break the outer loop if the assistant didn't make a tool call
 		if message.FunctionCall == nil || !executeTools {
 			if debug {
 				log.Println("Ending turn.")
