@@ -11,6 +11,7 @@ import (
 // OpenAIClient defines the methods used from the OpenAI client
 type OpenAIClient interface {
 	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+	CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 }
 
 // Swarm represents the main structure
@@ -241,7 +242,7 @@ func (s *Swarm) Run(
 						return Response{}, err
 					}
 
-					history = append(history, partialResponse.Messages...)
+					history = append(history, partialResponse.Messages...) // Include the tool_call_id here
 					for k, v := range partialResponse.ContextVariables {
 						contextVariables[k] = v
 					}
