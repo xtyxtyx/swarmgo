@@ -323,7 +323,7 @@ err := client.StreamingResponse(
 )
 ```
 
-For a complete example of file analysis with streaming, see [examples/file_analyzer_stream/file_analyzer_stream.go](examples/file_analyzer_stream.go).
+For a complete example of file analysis with streaming, see [examples/file_analyzer_stream/file_analyzer_stream.go](examples/file_analyzer_stream/file_analyzer_stream.go).
 
 ## Examples
 
