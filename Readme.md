@@ -212,7 +212,7 @@ type StreamHandler interface {
     OnComplete(message openai.ChatCompletionMessage)
     OnError(err error)
 }
-```:
+```
 
 A default implementation (`DefaultStreamHandler`) is provided, but you can create your own handler for custom behavior:
 
@@ -241,7 +241,7 @@ func (h *CustomStreamHandler) OnError(err error) {
 func (h *CustomStreamHandler) OnToolCall(tool openai.ToolCall) {
     fmt.Printf("\nUsing tool: %s\n", tool.Function.Name)
 }
-```:
+```
 
 ### Streaming Example
 
@@ -266,7 +266,7 @@ err := client.StreamingResponse(
     handler,
     true,
 )
-```:
+```
 
 For a complete example of file analysis with streaming, see [examples/file_analyzer_stream.go](examples/file_analyzer_stream.go).
 
