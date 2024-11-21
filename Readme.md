@@ -19,6 +19,7 @@ These primitives are powerful enough to express rich dynamics between tools and 
   - [Using Context Variables](#using-context-variables)
 - [Agent Handoff](#agent-handoff)
 - [Streaming Support](#streaming-support)
+- [Concurrent Agent Execution](#concurrent-agent-execution)
 - [Examples](#examples)
 - [Contributing](#contributing)
 - [License](#license)
@@ -195,6 +196,60 @@ agent.Functions = append(agent.Functions, swarmgo.AgentFunction{
 	Function: transferToAnotherAgent,
 })
 ```
+
+### Concurrent Agent Execution
+
+SwarmGo supports running multiple agents concurrently using the `ConcurrentSwarm` type. This is particularly useful when you need to parallelize agent tasks or run multiple analyses simultaneously.
+
+```go
+// Create a concurrent swarm
+cs := swarmgo.NewConcurrentSwarm(apiKey)
+
+// Configure multiple agents
+configs := map[string]swarmgo.AgentConfig{
+    "agent1": {
+        Agent: agent1,
+        Messages: []openai.ChatCompletionMessage{
+            {Role: openai.ChatMessageRoleUser, Content: "Task 1"},
+        },
+        MaxTurns: 1,
+        ExecuteTools: true,
+    },
+    "agent2": {
+        Agent: agent2,
+        Messages: []openai.ChatCompletionMessage{
+            {Role: openai.ChatMessageRoleUser, Content: "Task 2"},
+        },
+        MaxTurns: 1,
+        ExecuteTools: true,
+    },
+}
+
+// Run agents concurrently with a timeout
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+defer cancel()
+
+results := cs.RunConcurrent(ctx, configs)
+
+// Process results
+for _, result := range results {
+    if result.Error != nil {
+        log.Printf("Error in %s: %v\n", result.AgentName, result.Error)
+        continue
+    }
+    // Handle successful response
+    fmt.Printf("Result from %s: %s\n", result.AgentName, result.Response)
+}
+```
+
+Key features of concurrent execution:
+- Run multiple agents in parallel with independent configurations
+- Context-based timeout and cancellation support
+- Thread-safe result collection
+- Support for both ordered and unordered execution
+- Error handling for individual agent failures
+
+See the `examples/concurrent_analyzer.go` for a complete example of concurrent code analysis using multiple specialized agents.
 
 ## Streaming Support
 
