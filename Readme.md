@@ -18,6 +18,7 @@ These primitives are powerful enough to express rich dynamics between tools and 
   - [Adding Functions (Tools)](#adding-functions-tools)
   - [Using Context Variables](#using-context-variables)
 - [Agent Handoff](#agent-handoff)
+- [Streaming Support](#streaming-support)
 - [Examples](#examples)
 - [Contributing](#contributing)
 - [License](#license)
@@ -194,6 +195,80 @@ agent.Functions = append(agent.Functions, swarmgo.AgentFunction{
 	Function: transferToAnotherAgent,
 })
 ```
+
+## Streaming Support
+
+SwarmGo now includes built-in support for streaming responses, allowing real-time processing of AI responses and tool calls. This is particularly useful for long-running operations or when you want to provide immediate feedback to users.
+
+### Using Streaming
+
+To use streaming, implement the `StreamHandler` interface:
+
+```go
+type StreamHandler interface {
+    OnStart()
+    OnToken(token string)
+    OnToolCall(toolCall openai.ToolCall)
+    OnComplete(message openai.ChatCompletionMessage)
+    OnError(err error)
+}
+```:
+
+A default implementation (`DefaultStreamHandler`) is provided, but you can create your own handler for custom behavior:
+
+```go
+type CustomStreamHandler struct {
+    totalTokens int
+}
+
+func (h *CustomStreamHandler) OnStart() {
+    fmt.Println("Starting stream...")
+}
+
+func (h *CustomStreamHandler) OnToken(token string) {
+    h.totalTokens++
+    fmt.Print(token)
+}
+
+func (h *CustomStreamHandler) OnComplete(msg openai.ChatCompletionMessage) {
+    fmt.Printf("\nComplete! Total tokens: %d\n", h.totalTokens)
+}
+
+func (h *CustomStreamHandler) OnError(err error) {
+    fmt.Printf("Error: %v\n", err)
+}
+
+func (h *CustomStreamHandler) OnToolCall(tool openai.ToolCall) {
+    fmt.Printf("\nUsing tool: %s\n", tool.Function.Name)
+}
+```:
+
+### Streaming Example
+
+Here's an example of using streaming with a file analyzer:
+
+```go
+client := swarmgo.NewSwarm("YOUR_OPENAI_API_KEY")
+
+agent := &swarmgo.Agent{
+    Name:         "FileAnalyzer",
+    Instructions: "You are an assistant that analyzes files.",
+    Model:        "gpt-4",
+}
+
+handler := &CustomStreamHandler[]
+err := client.StreamingResponse(
+    context.Background(),
+    agent,
+    messages,
+    nil,
+    "",
+    handler,
+    true,
+)
+```:
+
+For a complete example of file analysis with streaming, see [examples/file_analyzer_stream.go](examples/file_analyzer_stream.go).
 
 ## Examples
 

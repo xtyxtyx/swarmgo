@@ -24,6 +24,10 @@ func (m *MockOpenAIClient) CreateChatCompletion(ctx context.Context, req openai.
 	return args.Get(0).(openai.ChatCompletionResponse), args.Error(1)
 }
 
+func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	args := m.Called(ctx, req)
+	return args.Get(0).(*openai.ChatCompletionStream), args.Error(1)
+}
 // NewMockSwarm initializes a new Swarm instance with a mock OpenAI client
 func NewMockSwarm(mockClient *MockOpenAIClient) *Swarm {
 	return &Swarm{
