@@ -6,6 +6,7 @@ import (
 	"fmt"
 	openai "github.com/sashabaranov/go-openai"
 	"log"
+	"time"
 )
 
 // OpenAIClient defines the methods used from the OpenAI client
@@ -187,8 +188,24 @@ func (s *Swarm) Run(
 		contextVariables = make(map[string]interface{})
 	}
 
+	// Initialize memory if not already initialized
+	if activeAgent.Memory == nil {
+		activeAgent.Memory = NewMemoryStore(100)
+	}
+
 	initLen := len(messages)
 	turns := 0
+
+	// Store initial user message as memory if it exists
+	if len(messages) > 0 && messages[len(messages)-1].Role == "user" {
+		activeAgent.Memory.AddMemory(Memory{
+			Content:   messages[len(messages)-1].Content,
+			Type:     "conversation",
+			Context:  contextVariables,
+			Timestamp: time.Now(),
+			Importance: 0.5, // Default importance
+		})
+	}
 
 	// Main loop for chat interaction
 	for turns < maxTurns && activeAgent != nil {
@@ -223,10 +240,18 @@ func (s *Swarm) Run(
 		message.Role = openai.ChatMessageRoleAssistant
 		message.Name = activeAgent.Name
 
+		// Store assistant's response as memory
+		activeAgent.Memory.AddMemory(Memory{
+			Content:   message.Content,
+			Type:     "conversation",
+			Context:  contextVariables,
+			Timestamp: time.Now(),
+			Importance: 0.5, // Default importance
+		})
+
 		history = append(history, message)
 
 		// Handle tool calls if any
-		// Inside the main loop in Run()
 		for {
 			if len(message.ToolCalls) > 0 && executeTools {
 				for _, toolCall := range message.ToolCalls {
@@ -240,6 +265,18 @@ func (s *Swarm) Run(
 					)
 					if err != nil {
 						return Response{}, err
+					}
+
+					// Store tool call result as memory
+					if len(partialResponse.Messages) > 0 {
+						activeAgent.Memory.AddMemory(Memory{
+							Content:   partialResponse.Messages[0].Content,
+							Type:     "tool_result",
+							Context:  contextVariables,
+							Timestamp: time.Now(),
+							Importance: 0.7, // Tool results are slightly more important
+							References: []string{toolCall.Function.Name},
+						})
 					}
 
 					history = append(history, partialResponse.Messages...) // Include the tool_call_id here
@@ -278,6 +315,15 @@ func (s *Swarm) Run(
 
 				message.Role = openai.ChatMessageRoleAssistant
 				message.Name = activeAgent.Name
+
+				// Store assistant's follow-up response as memory
+				activeAgent.Memory.AddMemory(Memory{
+					Content:   message.Content,
+					Type:     "conversation",
+					Context:  contextVariables,
+					Timestamp: time.Now(),
+					Importance: 0.5,
+				})
 
 				history = append(history, message)
 			} else {
