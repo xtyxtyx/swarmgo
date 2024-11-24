@@ -17,6 +17,7 @@ These primitives are powerful enough to express rich dynamics between tools and 
   - [Running the Agent](#running-the-agent)
   - [Adding Functions (Tools)](#adding-functions-tools)
   - [Using Context Variables](#using-context-variables)
+  - [Memory Management](#memory-management)
 - [Agent Handoff](#agent-handoff)
 - [Streaming Support](#streaming-support)
 - [Concurrent Agent Execution](#concurrent-agent-execution)
@@ -326,6 +327,45 @@ Key features of concurrent execution:
 
 See the `examples/concurrent_analyzer/main.go` for a complete example of concurrent code analysis using multiple specialized agents.
 
+
+## Memory Management
+
+SwarmGo includes a built-in memory management system that allows agents to store and recall information across conversations. The memory system supports both short-term and long-term memory, with features for organizing and retrieving memories based on type and context.
+
+```go
+// Create a new agent with memory capabilities
+agent := swarmgo.NewAgent("MyAgent", "gpt-4")
+
+// Memory is automatically managed for conversations and tool calls
+// You can also explicitly store memories:
+memory := swarmgo.Memory{
+    Content:    "User prefers dark mode",
+    Type:       "preference",
+    Context:    map[string]interface{}{"setting": "ui"},
+    Timestamp:  time.Now(),
+    Importance: 0.8,
+}
+agent.Memory.AddMemory(memory)
+
+// Retrieve recent memories
+recentMemories := agent.Memory.GetRecentMemories(5)
+
+// Search specific types of memories
+preferences := agent.Memory.SearchMemories("preference", nil)
+```
+
+Key features of the memory system:
+- **Automatic Memory Management**: Conversations and tool interactions are automatically stored
+- **Memory Types**: Organize memories by type (conversation, fact, tool_result, etc.)
+- **Context Association**: Link memories with relevant context
+- **Importance Scoring**: Assign priority levels to memories (0-1)
+- **Memory Search**: Search by type and context
+- **Persistence**: Save and load memories to/from disk
+- **Thread Safety**: Concurrent memory access is protected
+- **Short-term Buffer**: Recent memories are kept in a FIFO buffer
+- **Long-term Storage**: Organized storage by memory type
+
+See the [memory_demo](examples/memory_demo/main.go) example for a complete demonstration of memory capabilities.
 
 ## Examples
 

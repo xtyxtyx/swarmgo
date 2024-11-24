@@ -10,6 +10,17 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+func getWeather(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
+	location := args["location"].(string)
+	time := "now"
+	if t, ok := args["time"].(string); ok {
+		time = t
+	}
+	return swarmgo.Result{
+		Value: fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
+	}
+}
+
 func main() {
 	dotenv.Load()
 
