@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 // ConcurrentResult represents the result from a single agent's execution
@@ -20,23 +20,17 @@ type ConcurrentSwarm struct {
 }
 
 // NewConcurrentSwarm creates a new ConcurrentSwarm instance
-func NewConcurrentSwarm(apiKey string) *ConcurrentSwarm {
+func NewConcurrentSwarm(apiKey string, provider llm.LLMProvider) *ConcurrentSwarm {
 	return &ConcurrentSwarm{
-		Swarm: NewSwarm(apiKey),
+		Swarm: NewSwarm(apiKey, provider),
 	}
 }
 
-// NewConcurrentSwarmWithConfig creates a new ConcurrentSwarm instance with custom configuration
-func NewConcurrentSwarmWithConfig(config ClientConfig) *ConcurrentSwarm {
-	return &ConcurrentSwarm{
-		Swarm: NewSwarmWithConfig(config),
-	}
-}
 
 // AgentConfig holds the configuration for a single agent execution
 type AgentConfig struct {
 	Agent            *Agent
-	Messages         []openai.ChatCompletionMessage
+	Messages         []llm.Message
 	ContextVariables map[string]interface{}
 	ModelOverride    string
 	Stream           bool

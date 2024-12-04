@@ -6,6 +6,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func getWeather(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
@@ -15,7 +16,8 @@ func getWeather(args map[string]interface{}, contextVariables map[string]interfa
 		time = t
 	}
 	return swarmgo.Result{
-		Value: fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
+		Success: true,
+		Data: fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
 	}
 }
 
@@ -26,14 +28,15 @@ func sendEmail(args map[string]interface{}, contextVariables map[string]interfac
 	fmt.Println("Sending email...")
 	fmt.Printf("To: %s\nSubject: %s\nBody: %s\n", recipient, subject, body)
 	return swarmgo.Result{
-		Value: "Sent!",
+		Success: true,
+		Data: "Sent!",
 	}
 }
 
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	weatherAgent := &swarmgo.Agent{
 		Name:         "WeatherAgent",

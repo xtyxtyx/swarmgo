@@ -1,19 +1,20 @@
 package swarmgo
 
 import (
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
-// Response represents a response from an agent, including messages and context
+// Response represents the response from an agent
 type Response struct {
-	Messages         []openai.ChatCompletionMessage // List of chat messages in the response
-	Agent            *Agent                         // Reference to the agent that generated the response
-	ContextVariables map[string]interface{}         // Additional context variables associated with the response
+	Messages         []llm.Message
+	Agent            *Agent
+	ContextVariables map[string]interface{}
 }
 
-// Result represents the outcome of an operation, including its value and context
+// Result represents the result of a function execution
 type Result struct {
-	Value            string                 // The resulting value as a string
-	Agent            *Agent                 // Reference to the agent that produced the result
-	ContextVariables map[string]interface{} // Additional context variables associated with the result
+	Success bool        // Whether the function execution was successful
+	Data    interface{} // Any data returned by the function
+	Error   error       // Any error that occurred during execution
+	Agent   *Agent      // Active agent
 }

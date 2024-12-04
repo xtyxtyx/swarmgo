@@ -8,7 +8,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func transferToSpanishAgent(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
@@ -19,13 +19,13 @@ func transferToSpanishAgent(args map[string]interface{}, contextVariables map[st
 	}
 	return swarmgo.Result{
 		Agent: spanishAgent,
-		Value: "Transferring to Spanish Agent.",
+		Data:  "Transferring to Spanish Agent.",
 	}
 }
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	englishAgent := &swarmgo.Agent{
 		Name:         "EnglishAgent",
@@ -44,7 +44,7 @@ func main() {
 		Model: "gpt-4",
 	}
 
-	messages := []openai.ChatCompletionMessage{
+	messages := []llm.Message{
 		{Role: "user", Content: "Hola. ¿Cómo estás?"},
 	}
 

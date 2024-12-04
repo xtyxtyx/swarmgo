@@ -7,13 +7,13 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"),llm.OpenAI)
 
 	agent := &swarmgo.Agent{
 		Name:         "Agent",
@@ -21,8 +21,8 @@ func main() {
 		Model:        "gpt-3.5-turbo",
 	}
 
-	messages := []openai.ChatCompletionMessage{
-		{Role: "user", Content: "Hi!"},
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "Hi!"},
 	}
 
 	ctx := context.Background()

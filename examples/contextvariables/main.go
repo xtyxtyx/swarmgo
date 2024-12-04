@@ -8,7 +8,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func instructions(contextVariables map[string]interface{}) string {
@@ -23,13 +23,13 @@ func printAccountDetails(args map[string]interface{}, contextVariables map[strin
 	userID := contextVariables["user_id"]
 	name := contextVariables["name"]
 	return swarmgo.Result{
-		Value: fmt.Sprintf("Account Details: %v %v", name, userID),
+		Data: fmt.Sprintf("Account Details: %v %v", name, userID),
 	}
 }
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	agent := &swarmgo.Agent{
 		Name:             "Agent",
@@ -56,7 +56,7 @@ func main() {
 	ctx := context.Background()
 
 	// First interaction
-	response, err := client.Run(ctx, agent, []openai.ChatCompletionMessage{
+	response, err := client.Run(ctx, agent, []llm.Message{
 		{Role: "user", Content: "Hi!"},
 	}, contextVariables, "", false, false, 5, true)
 	if err != nil {
@@ -66,7 +66,7 @@ func main() {
 	fmt.Println(response.Messages[len(response.Messages)-1].Content)
 
 	// Second interaction
-	response, err = client.Run(ctx, agent, []openai.ChatCompletionMessage{
+	response, err = client.Run(ctx, agent, []llm.Message{
 		{Role: "user", Content: "Print my account details!"},
 	}, contextVariables, "", false, false, 5, true)
 	if err != nil {

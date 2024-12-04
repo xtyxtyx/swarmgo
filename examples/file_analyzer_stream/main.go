@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/prathyushnallamothu/swarmgo"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -31,7 +33,7 @@ func (h *CustomStreamHandler) OnToken(token string) {
 	fmt.Print(token)
 }
 
-func (h *CustomStreamHandler) OnComplete(msg openai.ChatCompletionMessage) {
+func (h *CustomStreamHandler) OnComplete(msg llm.Message) {
 	fmt.Printf("\n\n✅ Analysis complete! Total tokens processed: %d\n", h.totalTokens)
 }
 
@@ -39,14 +41,17 @@ func (h *CustomStreamHandler) OnError(err error) {
 	fmt.Printf("❌ Error: %v\n", err)
 }
 
-func (h *CustomStreamHandler) OnToolCall(tool openai.ToolCall) {
-	fmt.Printf("\n🔧 Using tool: %s\n", tool.Function.Name)
+func (h *CustomStreamHandler) OnToolCall(toolCall llm.ToolCall) {
+	fmt.Printf("\n🔧 Using tool: %s\n", toolCall.Function.Name)
 }
 
 // FileProcessor handles file operations
 type FileProcessor struct{}
 
 func (fp *FileProcessor) ReadFile(path string) (string, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", fmt.Errorf("file does not exist: %s", path)
+	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("error reading file: %v", err)
@@ -62,6 +67,15 @@ func (fp *FileProcessor) CountWords(text string) int {
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Error loading .env file: %v", err)
+	}
+
+	// Get the project root directory
+	projectRoot := "/Users/prathyushnallamothu/Desktop/Projects/swarmgo"
+	readmePath := filepath.Join(projectRoot, "Readme.md")
+
+	// Verify the file exists
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		log.Fatalf("README.md not found at %s", readmePath)
 	}
 
 	fileProcessor := &FileProcessor{}
@@ -82,15 +96,22 @@ func main() {
 				"required": []string{"path"},
 			},
 			Function: func(args map[string]interface{}, context map[string]interface{}) swarmgo.Result {
-				path, _ := args["path"].(string)
+				path, ok := args["path"].(string)
+				fmt.Println(path)
+				if !ok {
+					return swarmgo.Result{
+						Error: fmt.Errorf("invalid path argument"),
+					}
+				}
 				content, err := fileProcessor.ReadFile(path)
 				if err != nil {
 					return swarmgo.Result{
-						Value: fmt.Sprintf("Error reading file: %v", err),
+						Error: err,
+						Data:  fmt.Sprintf("Error reading file: %v", err),
 					}
 				}
 				return swarmgo.Result{
-					Value: content,
+					Data: content,
 				}
 			},
 		},
@@ -108,10 +129,15 @@ func main() {
 				"required": []string{"text"},
 			},
 			Function: func(args map[string]interface{}, context map[string]interface{}) swarmgo.Result {
-				text, _ := args["text"].(string)
+				text, ok := args["text"].(string)
+				if !ok {
+					return swarmgo.Result{
+						Error: fmt.Errorf("invalid text argument"),
+					}
+				}
 				wordCount := fileProcessor.CountWords(text)
 				return swarmgo.Result{
-					Value: strconv.Itoa(wordCount),
+					Data: strconv.Itoa(wordCount),
 				}
 			},
 		},
@@ -120,33 +146,37 @@ func main() {
 	// Create a new agent with file analysis capabilities
 	agent := &swarmgo.Agent{
 		Name: "FileAnalyzer",
-		Instructions: `You are a file analysis assistant. Your tasks include:
-1. Reading and analyzing text files
-2. Providing detailed summaries of file content
-3. Analyzing text structure and statistics
-4. Identifying key themes and patterns
+		Instructions: `You are a file analysis assistant that uses tools to analyze files.
 
-When analyzing files:
-- Start with a brief overview
-- Break down the content into meaningful sections
-- Provide word counts and other relevant metrics
-- Highlight important findings
-- Maintain a professional and clear communication style`,
+Available tools:
+1. read_file: Takes a file path and returns its contents
+2. count_words: Takes a text string and returns the word count
+
+Follow these steps exactly:
+1. First use read_file to read the content of the file
+2. Then use count_words to count the words in the file content
+3. Finally, provide a detailed analysis including:
+   - Word count
+   - Key themes and topics
+   - Structure and organization
+   - Main points and findings
+
+Always use the tools in this exact order and wait for each tool's result before proceeding.`,
 		Functions: functions,
-		Model:     openai.GPT4TurboPreview,
+		Model:     openai.GPT4,
 	}
 
 	// Create a new swarm instance
-	swarm := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	swarm := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	// Create a custom stream handler
 	handler := &CustomStreamHandler{}
 
 	// Example message to analyze a file
-	messages := []openai.ChatCompletionMessage{
+	messages := []llm.Message{
 		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Please analyze the content of README.md in the current directory. Provide a detailed summary with word count and key points.",
+			Role:    llm.RoleUser,
+			Content: fmt.Sprintf("Please analyze %s by following these steps:\n1. Use read_file to read %s\n2. Use count_words on the file content\n3. Provide a detailed analysis", readmePath, readmePath),
 		},
 	}
 

@@ -6,6 +6,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func processRefund(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
@@ -16,35 +17,35 @@ func processRefund(args map[string]interface{}, contextVariables map[string]inte
 	}
 	fmt.Printf("[mock] Refunding item %s because %s...\n", itemID, reason)
 	return swarmgo.Result{
-		Value: fmt.Sprintf("Refunded item %s because %s.", itemID, reason),
+		Data: fmt.Sprintf("Refunded item %s because %s.", itemID, reason),
 	}
 }
 
 func applyDiscount(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
 	fmt.Println("[mock] Applying discount...")
 	return swarmgo.Result{
-		Value: "Applied discount of 11%",
+		Data: "Applied discount of 11%",
 	}
 }
 
 func transferBackToTriage(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
 	return swarmgo.Result{
 		Agent: triageAgent,
-		Value: "Transferring back to TriageAgent.",
+		Data:  "Transferring back to TriageAgent.",
 	}
 }
 
 func transferToSales(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
 	return swarmgo.Result{
 		Agent: salesAgent,
-		Value: "Transferring to SalesAgent.",
+		Data:  "Transferring to SalesAgent.",
 	}
 }
 
 func transferToRefunds(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
 	return swarmgo.Result{
 		Agent: refundsAgent,
-		Value: "Transferring to RefundsAgent.",
+		Data:  "Transferring to RefundsAgent.",
 	}
 }
 
@@ -144,12 +145,22 @@ func initAgents() {
 		},
 		Function: transferBackToTriage,
 	})
+
+	refundsAgent.Functions = append(refundsAgent.Functions, swarmgo.AgentFunction{
+		Name:        "transferToSales",
+		Description: "Transfer the conversation to the SalesAgent.",
+		Parameters: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+		Function: transferToSales,
+	})
 }
 
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	initAgents() // Initialize agents and their functions
 

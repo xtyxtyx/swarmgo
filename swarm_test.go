@@ -9,27 +9,28 @@ import (
 	"os"
 	"testing"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-// MockOpenAIClient is a mock of the OpenAI client
-type MockOpenAIClient struct {
+// MockLLM is a mock implementation of the LLM interface
+type MockLLM struct {
 	mock.Mock
 }
 
-func (m *MockOpenAIClient) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+func (m *MockLLM) CreateChatCompletion(ctx context.Context, req llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
 	args := m.Called(ctx, req)
-	return args.Get(0).(openai.ChatCompletionResponse), args.Error(1)
+	return args.Get(0).(llm.ChatCompletionResponse), args.Error(1)
 }
 
-func (m *MockOpenAIClient) CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+func (m *MockLLM) CreateChatCompletionStream(ctx context.Context, req llm.ChatCompletionRequest) (llm.ChatCompletionStream, error) {
 	args := m.Called(ctx, req)
-	return args.Get(0).(*openai.ChatCompletionStream), args.Error(1)
+	return args.Get(0).(llm.ChatCompletionStream), args.Error(1)
 }
-// NewMockSwarm initializes a new Swarm instance with a mock OpenAI client
-func NewMockSwarm(mockClient *MockOpenAIClient) *Swarm {
+
+// NewMockSwarm initializes a new Swarm instance with a mock LLM client
+func NewMockSwarm(mockClient *MockLLM) *Swarm {
 	return &Swarm{
 		client: mockClient,
 	}
@@ -38,7 +39,7 @@ func NewMockSwarm(mockClient *MockOpenAIClient) *Swarm {
 // TestNewSwarm tests the NewSwarm function
 func TestNewSwarm(t *testing.T) {
 	apiKey := "test-api-key"
-	sw := NewSwarm(apiKey)
+	sw := NewSwarm(apiKey, llm.OpenAI)
 	assert.NotNil(t, sw)
 	assert.NotNil(t, sw.client)
 }
@@ -67,14 +68,18 @@ func TestFunctionToDefinition(t *testing.T) {
 	assert.Equal(t, af.Parameters, def.Parameters)
 }
 
-// TestHandleFunctionCall tests the handleFunctionCall method
-func TestHandleFunctionCall(t *testing.T) {
-	sw := NewSwarm("test-api-key")
+// TestHandleToolCall tests the handleToolCall method
+func TestHandleToolCall(t *testing.T) {
+	sw := NewSwarm("test-api-key", llm.OpenAI)
 	ctx := context.Background()
 
-	toolCall := openai.ToolCall{
-		ID:      "testFunction",
-		Function: openai.FunctionCall{
+	toolCall := llm.ToolCall{
+		ID:   "testFunction",
+		Type: "function",
+		Function: struct {
+			Name      string "json:\"name\""
+			Arguments string "json:\"arguments\""
+		}{
 			Name:      "testFunction",
 			Arguments: `{"arg1": "value1"}`,
 		},
@@ -85,7 +90,8 @@ func TestHandleFunctionCall(t *testing.T) {
 		Description: "A test function",
 		Function: func(args map[string]interface{}, contextVariables map[string]interface{}) Result {
 			return Result{
-				Value: "Function executed successfully",
+				Success: true,
+				Data:    "Function executed successfully",
 			}
 		},
 	}
@@ -101,19 +107,22 @@ func TestHandleFunctionCall(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Len(t, response.Messages, 1)
-	assert.Equal(t, "tool", response.Messages[0].Role)
-	assert.Equal(t, "testFunction", response.Messages[0].Name)
+	assert.Equal(t, llm.RoleAssistant, response.Messages[0].Role)
 	assert.Equal(t, "Function executed successfully", response.Messages[0].Content)
 }
 
-// TestHandleFunctionCallFunctionNotFound tests handleFunctionCall when function is not found
-func TestHandleFunctionCallFunctionNotFound(t *testing.T) {
-	sw := NewSwarm("test-api-key")
+// TestHandleToolCallFunctionNotFound tests handleToolCall when function is not found
+func TestHandleToolCallFunctionNotFound(t *testing.T) {
+	sw := NewSwarm("test-api-key", llm.OpenAI)
 	ctx := context.Background()
 
-	toolCall := openai.ToolCall{
-		ID:      "nonExistentFunction",
-		Function: openai.FunctionCall{
+	toolCall := llm.ToolCall{
+		ID:   "nonExistentFunction",
+		Type: "function",
+		Function: struct {
+			Name      string "json:\"name\""
+			Arguments string "json:\"arguments\""
+		}{
 			Name:      "nonExistentFunction",
 			Arguments: `{}`,
 		},
@@ -130,14 +139,13 @@ func TestHandleFunctionCallFunctionNotFound(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Len(t, response.Messages, 1)
-	assert.Equal(t, "tool", response.Messages[0].Role)
-	assert.Equal(t, "nonExistentFunction", response.Messages[0].Name)
+	assert.Equal(t, llm.RoleAssistant, response.Messages[0].Role)
 	assert.Contains(t, response.Messages[0].Content, "Error: Tool nonExistentFunction not found.")
 }
 
 // TestRun tests the Run method
 func TestRun(t *testing.T) {
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockLLM)
 	sw := NewMockSwarm(mockClient)
 	ctx := context.Background()
 
@@ -146,7 +154,8 @@ func TestRun(t *testing.T) {
 		Description: "A test function",
 		Function: func(args map[string]interface{}, contextVariables map[string]interface{}) Result {
 			return Result{
-				Value: "Function executed successfully",
+				Success: true,
+				Data:    "Function executed successfully",
 			}
 		},
 	}
@@ -157,31 +166,40 @@ func TestRun(t *testing.T) {
 		Model:     "test-model",
 	}
 
-	messages := []openai.ChatCompletionMessage{
-		{Role: "user", Content: "Hello"},
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "Hello"},
 	}
 
-	// Mock the OpenAI API response
-	mockResponse1 := openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
+	// Mock the LLM API response
+	mockResponse1 := llm.ChatCompletionResponse{
+		Choices: []llm.Choice{
 			{
-				Message: openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleAssistant,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
 					Content: "",
-					FunctionCall: &openai.FunctionCall{
-						Name:      "testFunction",
-						Arguments: `{"arg1": "value1"}`,
+					ToolCalls: []llm.ToolCall{
+						{
+							ID:   "testFunction",
+							Type: "function",
+							Function: struct {
+								Name      string "json:\"name\""
+								Arguments string "json:\"arguments\""
+							}{
+								Name:      "testFunction",
+								Arguments: `{"arg1": "value1"}`,
+							},
+						},
 					},
 				},
 			},
 		},
 	}
 
-	mockResponse2 := openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
+	mockResponse2 := llm.ChatCompletionResponse{
+		Choices: []llm.Choice{
 			{
-				Message: openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleAssistant,
+				Message: llm.Message{
+					Role:    llm.RoleAssistant,
 					Content: "Here is the result of the function.",
 				},
 			},
@@ -201,7 +219,7 @@ func TestRun(t *testing.T) {
 
 // TestRunFunctionCallError tests the Run method when function call returns an error
 func TestRunFunctionCallError(t *testing.T) {
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockLLM)
 	sw := NewMockSwarm(mockClient)
 	ctx := context.Background()
 
@@ -210,7 +228,8 @@ func TestRunFunctionCallError(t *testing.T) {
 		Description: "A test function",
 		Function: func(args map[string]interface{}, contextVariables map[string]interface{}) Result {
 			return Result{
-				Value: "Function executed successfully",
+				Success: true,
+				Data:    "Function executed successfully",
 			}
 		},
 	}
@@ -221,12 +240,12 @@ func TestRunFunctionCallError(t *testing.T) {
 		Model:     "test-model",
 	}
 
-	messages := []openai.ChatCompletionMessage{
-		{Role: "user", Content: "Hello"},
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "Hello"},
 	}
 
-	// Mock the OpenAI API to return an error
-	mockClient.On("CreateChatCompletion", mock.Anything, mock.Anything).Return(openai.ChatCompletionResponse{}, errors.New("API error"))
+	// Mock the LLM API to return an error
+	mockClient.On("CreateChatCompletion", mock.Anything, mock.Anything).Return(llm.ChatCompletionResponse{}, errors.New("API error"))
 
 	response, err := sw.Run(ctx, agent, messages, nil, "", false, false, 5, true)
 
@@ -238,14 +257,14 @@ func TestRunFunctionCallError(t *testing.T) {
 // TestProcessAndPrintResponse tests the ProcessAndPrintResponse function
 func TestProcessAndPrintResponse(t *testing.T) {
 	response := Response{
-		Messages: []openai.ChatCompletionMessage{
+		Messages: []llm.Message{
 			{
-				Role:    "assistant",
+				Role:    llm.RoleAssistant,
 				Name:    "TestAgent",
 				Content: "Hello, how can I assist you?",
 			},
 			{
-				Role:    "function",
+				Role:    llm.RoleAssistant,
 				Name:    "testFunction",
 				Content: "Function output",
 			},

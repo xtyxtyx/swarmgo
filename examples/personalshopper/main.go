@@ -7,6 +7,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarm "github.com/prathyushnallamothu/swarmgo"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func main() {
@@ -130,7 +131,7 @@ ask them for user_id and method in one message.`,
 		Function: func(args map[string]interface{}, contextVariables map[string]interface{}) swarm.Result {
 			return swarm.Result{
 				Agent: salesAgent,
-				Value: "Transferring to SalesAgent.",
+				Data: "Transferring to SalesAgent.",
 			}
 		},
 	}
@@ -145,7 +146,7 @@ ask them for user_id and method in one message.`,
 		Function: func(args map[string]interface{}, contextVariables map[string]interface{}) swarm.Result {
 			return swarm.Result{
 				Agent: refundsAgent,
-				Value: "Transferring to RefundsAgent.",
+				Data: "Transferring to RefundsAgent.",
 			}
 		},
 	}
@@ -172,7 +173,7 @@ Do not share your thought process with the user! Do not make unreasonable assump
 		log.Fatal("Please set the OPENAI_API_KEY environment variable.")
 	}
 
-	client := swarm.NewSwarm(apiKey)
+	client := swarm.NewSwarm(apiKey, llm.OpenAI)
 
 	swarm.RunDemoLoop(client, triageAgent)
 }

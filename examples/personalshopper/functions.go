@@ -14,13 +14,13 @@ func refundItem(args map[string]interface{}, contextVariables map[string]interfa
 	itemIDStr, ok2 := args["item_id"].(string)
 
 	if !ok1 || !ok2 {
-		return swarmgo.Result{Value: "Please provide both user_id and item_id."}
+		return swarmgo.Result{Data: "Please provide both user_id and item_id."}
 	}
 
 	userID, err1 := strconv.Atoi(userIDStr)
 	itemID, err2 := strconv.Atoi(itemIDStr)
 	if err1 != nil || err2 != nil {
-		return swarmgo.Result{Value: "Invalid user_id or item_id format."}
+		return swarmgo.Result{Data: "Invalid user_id or item_id format."}
 	}
 
 	conn := getConnection()
@@ -32,13 +32,13 @@ func refundItem(args map[string]interface{}, contextVariables map[string]interfa
 	`, userID, itemID).Scan(&amount)
 
 	if err != nil {
-		return swarmgo.Result{Value: fmt.Sprintf("No purchase found for user ID %d and item ID %d.", userID, itemID)}
+		return swarmgo.Result{Data: fmt.Sprintf("No purchase found for user ID %d and item ID %d.", userID, itemID)}
 	}
 
 	fmt.Printf("Refunding $%.2f to user ID %d for item ID %d.\n", amount, userID, itemID)
 	fmt.Println("Refund initiated")
 
-	return swarmgo.Result{Value: "Refund initiated successfully."}
+	return swarmgo.Result{Success: true,Data: "Refund initiated successfully."}
 }
 
 func notifyCustomer(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
@@ -46,12 +46,12 @@ func notifyCustomer(args map[string]interface{}, contextVariables map[string]int
 	method, ok2 := args["method"].(string)
 
 	if !ok1 || !ok2 {
-		return swarmgo.Result{Value: "Please provide both user_id and method."}
+		return swarmgo.Result{Data: "Please provide both user_id and method."}
 	}
 
 	userID, err1 := strconv.Atoi(userIDStr)
 	if err1 != nil {
-		return swarmgo.Result{Value: "Invalid user_id format."}
+		return swarmgo.Result{Data: "Invalid user_id format."}
 	}
 
 	conn := getConnection()
@@ -62,17 +62,17 @@ func notifyCustomer(args map[string]interface{}, contextVariables map[string]int
 	`, userID).Scan(&email, &phone)
 
 	if err != nil {
-		return swarmgo.Result{Value: fmt.Sprintf("User ID %d not found.", userID)}
+		return swarmgo.Result{Data: fmt.Sprintf("User ID %d not found.", userID)}
 	}
 
 	if method == "email" && email != "" {
 		fmt.Printf("Emailed customer %s a notification.\n", email)
-		return swarmgo.Result{Value: fmt.Sprintf("Emailed customer %s a notification.", email)}
+		return swarmgo.Result{Data: fmt.Sprintf("Emailed customer %s a notification.", email)}
 	} else if method == "phone" && phone != "" {
 		fmt.Printf("Texted customer %s a notification.\n", phone)
-		return swarmgo.Result{Value: fmt.Sprintf("Texted customer %s a notification.", phone)}
+		return swarmgo.Result{Data: fmt.Sprintf("Texted customer %s a notification.", phone)}
 	} else {
-		return swarmgo.Result{Value: fmt.Sprintf("No %s contact available for user ID %d.", method, userID)}
+		return swarmgo.Result{Data: fmt.Sprintf("No %s contact available for user ID %d.", method, userID)}
 	}
 }
 
@@ -81,13 +81,13 @@ func orderItem(args map[string]interface{}, contextVariables map[string]interfac
 	productIDStr, ok2 := args["product_id"].(string)
 
 	if !ok1 || !ok2 {
-		return swarmgo.Result{Value: "Please provide both user_id and product_id."}
+		return swarmgo.Result{Data: "Please provide both user_id and product_id."}
 	}
 
 	userID, err1 := strconv.Atoi(userIDStr)
 	productID, err2 := strconv.Atoi(productIDStr)
 	if err1 != nil || err2 != nil {
-		return swarmgo.Result{Value: "Invalid user_id or product_id format."}
+		return swarmgo.Result{Data: "Invalid user_id or product_id format."}
 	}
 
 	conn := getConnection()
@@ -99,7 +99,7 @@ func orderItem(args map[string]interface{}, contextVariables map[string]interfac
 	`, productID).Scan(&productName, &price)
 
 	if err != nil {
-		return swarmgo.Result{Value: fmt.Sprintf("Product %d not found.", productID)}
+		return swarmgo.Result{Data: fmt.Sprintf("Product %d not found.", productID)}
 	}
 
 	dateOfPurchase := time.Now().Format("2006-01-02")
@@ -108,5 +108,5 @@ func orderItem(args map[string]interface{}, contextVariables map[string]interfac
 	fmt.Printf("Ordering product %s for user ID %d. The price is %.2f.\n", productName, userID, price)
 	addPurchase(userID, dateOfPurchase, itemID, price)
 
-	return swarmgo.Result{Value: fmt.Sprintf("Ordered %s for user ID %d.", productName, userID)}
+	return swarmgo.Result{Data: fmt.Sprintf("Ordered %s for user ID %d.", productName, userID)}
 }

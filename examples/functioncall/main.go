@@ -7,7 +7,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func getWeather(args map[string]interface{}, contextVariables map[string]interface{}) swarmgo.Result {
@@ -17,14 +17,15 @@ func getWeather(args map[string]interface{}, contextVariables map[string]interfa
 		time = t
 	}
 	return swarmgo.Result{
-		Value: fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
+		Success: true,
+		Data:    fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
 	}
 }
 
 func main() {
 	dotenv.Load()
 
-	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"))
+	client := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
 
 	agent := &swarmgo.Agent{
 		Name:         "Agent",
@@ -49,8 +50,8 @@ func main() {
 		Model: "gpt-4",
 	}
 
-	messages := []openai.ChatCompletionMessage{
-		{Role: "user", Content: "What's the weather in NYC?"},
+	messages := []llm.Message{
+		{Role: llm.RoleUser, Content: "What's the weather in NYC?"},
 	}
 
 	ctx := context.Background()
@@ -60,5 +61,4 @@ func main() {
 	}
 
 	fmt.Println(response.Messages[len(response.Messages)-1].Content)
-
 }
