@@ -4,71 +4,61 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	openai "github.com/sashabaranov/go-openai"
 	"log"
 	"time"
-)
 
-// OpenAIClient defines the methods used from the OpenAI client
-type OpenAIClient interface {
-	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
-	CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
-}
+	"github.com/prathyushnallamothu/swarmgo/llm"
+)
 
 // Swarm represents the main structure
 type Swarm struct {
-	client OpenAIClient
+	client llm.LLM
 }
 
-// NewSwarm initializes a new Swarm instance with an OpenAI client
-func NewSwarm(apiKey string) *Swarm {
-	client := openai.NewClient(apiKey)
-	return &Swarm{
-		client: client,
+// NewSwarm initializes a new Swarm instance with an LLM client
+func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
+	if provider == llm.OpenAI {
+		client := llm.NewOpenAILLM(apiKey)
+		return &Swarm{
+			client: client,
+		}
 	}
+	return nil
 }
 
-func NewSwarmWithConfig(config ClientConfig) *Swarm {
-	openaiConfig := openai.DefaultConfig(config.AuthToken)
-	openaiConfig.BaseURL = config.BaseURL
-	client := openai.NewClientWithConfig(openaiConfig)
-	return &Swarm{
-		client: client,
-	}
-}
-
-// getChatCompletion requests a chat completion from the OpenAI API
+// getChatCompletion requests a chat completion from the LLM
 func (s *Swarm) getChatCompletion(
 	ctx context.Context,
 	agent *Agent,
-	history []openai.ChatCompletionMessage,
+	history []llm.Message,
 	contextVariables map[string]interface{},
 	modelOverride string,
 	stream bool,
 	debug bool,
-) (openai.ChatCompletionResponse, error) {
-
+) (llm.ChatCompletionResponse, error) {
 	// Prepare the initial system message with agent instructions
 	instructions := agent.Instructions
 	if agent.InstructionsFunc != nil {
 		instructions = agent.InstructionsFunc(contextVariables)
 	}
-	messages := append([]openai.ChatCompletionMessage{
+	messages := append([]llm.Message{
 		{
-			Role:    openai.ChatMessageRoleSystem,
+			Role:    llm.RoleSystem,
 			Content: instructions,
 		},
 	}, history...)
 
 	// Build tool definitions from agent's functions
-	var toolDefs []openai.FunctionDefinition
-	var tools []openai.Tool
+	var tools []llm.Tool
 	for _, af := range agent.Functions {
 		def := FunctionToDefinition(af)
-		toolDefs = append(toolDefs, def)
-		tools = append(tools, openai.Tool{
-			Type:     "function",
-			Function: &def,
+		tools = append(tools, llm.Tool{
+			Type: "function",
+			Function: &llm.Function{
+				Name:        def.Name,
+				Description: def.Description,
+				Parameters:  def.Parameters,
+			},
 		})
 	}
 
@@ -77,7 +67,8 @@ func (s *Swarm) getChatCompletion(
 	if modelOverride != "" {
 		model = modelOverride
 	}
-	req := openai.ChatCompletionRequest{
+
+	req := llm.ChatCompletionRequest{
 		Model:    model,
 		Messages: messages,
 		Tools:    tools,
@@ -87,10 +78,10 @@ func (s *Swarm) getChatCompletion(
 		log.Printf("Getting chat completion for: %+v\n", messages)
 	}
 
-	// Call the OpenAI API to get a chat completion
+	// Call the LLM to get a chat completion
 	resp, err := s.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return openai.ChatCompletionResponse{}, err
+		return llm.ChatCompletionResponse{}, err
 	}
 
 	return resp, nil
@@ -99,14 +90,13 @@ func (s *Swarm) getChatCompletion(
 // handleToolCall processes a tool call from the chat completion
 func (s *Swarm) handleToolCall(
 	ctx context.Context,
-	toolCall *openai.ToolCall,
+	toolCall *llm.ToolCall,
 	agent *Agent,
 	contextVariables map[string]interface{},
 	debug bool,
 ) (Response, error) {
 	toolName := toolCall.Function.Name
 	argsJSON := toolCall.Function.Arguments
-	toolCallID := toolCall.ID // Extract the tool_call_id
 
 	// Parse the tool call arguments
 	var args map[string]interface{}
@@ -134,36 +124,29 @@ func (s *Swarm) handleToolCall(
 			log.Println(errorMessage)
 		}
 		return Response{
-			Messages: []openai.ChatCompletionMessage{
+			Messages: []llm.Message{
 				{
-					Role:       "tool",
-					Name:       toolName,
-					Content:    errorMessage,
-					ToolCallID: toolCallID, // Include the tool_call_id here
+					Role:    llm.RoleAssistant,
+					Content: errorMessage,
 				},
 			},
 		}, nil
 	}
 
-	// Execute the function and update context variables
+	// Execute the function
 	result := functionFound.Function(args, contextVariables)
-	for k, v := range result.ContextVariables {
-		contextVariables[k] = v
-	}
 
 	// Create a message with the tool result
-	toolResultMessage := openai.ChatCompletionMessage{
-		Role:       openai.ChatMessageRoleTool,
-		Name:       toolName,
-		Content:    result.Value,
-		ToolCallID: toolCallID, // Include the tool_call_id here
+	toolResultMessage := llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: fmt.Sprintf("%v", result.Data),
 	}
 
-	// Return the partial response with the tool result
+	// Return the partial response with the tool result and any agent transfer
 	partialResponse := Response{
-		Messages:         []openai.ChatCompletionMessage{toolResultMessage},
-		Agent:            result.Agent,
-		ContextVariables: result.ContextVariables,
+		Messages:         []llm.Message{toolResultMessage},
+		Agent:            result.Agent, // Use the agent from the result if provided
+		ContextVariables: contextVariables,
 	}
 
 	return partialResponse, nil
@@ -173,7 +156,7 @@ func (s *Swarm) handleToolCall(
 func (s *Swarm) Run(
 	ctx context.Context,
 	agent *Agent,
-	messages []openai.ChatCompletionMessage,
+	messages []llm.Message,
 	contextVariables map[string]interface{},
 	modelOverride string,
 	stream bool,
@@ -182,7 +165,7 @@ func (s *Swarm) Run(
 	executeTools bool,
 ) (Response, error) {
 	activeAgent := agent
-	history := make([]openai.ChatCompletionMessage, len(messages))
+	history := make([]llm.Message, len(messages))
 	copy(history, messages)
 	if contextVariables == nil {
 		contextVariables = make(map[string]interface{})
@@ -197,151 +180,71 @@ func (s *Swarm) Run(
 	turns := 0
 
 	// Store initial user message as memory if it exists
-	if len(messages) > 0 && messages[len(messages)-1].Role == "user" {
+	if len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleUser {
 		activeAgent.Memory.AddMemory(Memory{
 			Content:   messages[len(messages)-1].Content,
-			Type:     "conversation",
-			Context:  contextVariables,
 			Timestamp: time.Now(),
-			Importance: 0.5, // Default importance
 		})
 	}
 
-	// Main loop for chat interaction
-	for turns < maxTurns && activeAgent != nil {
-		turns++
+	for {
+		if maxTurns > 0 && turns >= maxTurns {
+			break
+		}
 
-		// Get a chat completion from the API
-		resp, err := s.getChatCompletion(
-			ctx,
-			activeAgent,
-			history,
-			contextVariables,
-			modelOverride,
-			stream,
-			debug,
-		)
+		// Get chat completion from LLM
+		resp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
 		if err != nil {
 			return Response{}, err
 		}
 
+		// Process the response
 		if len(resp.Choices) == 0 {
 			return Response{}, fmt.Errorf("no choices in response")
 		}
 
 		choice := resp.Choices[0]
-		message := choice.Message
+		history = append(history, choice.Message)
 
-		if debug {
-			log.Printf("Received completion: %+v\n", message)
-		}
-
-		// Update message role and name
-		message.Role = openai.ChatMessageRoleAssistant
-		message.Name = activeAgent.Name
-
-		// Store assistant's response as memory
-		activeAgent.Memory.AddMemory(Memory{
-			Content:   message.Content,
-			Type:     "conversation",
-			Context:  contextVariables,
-			Timestamp: time.Now(),
-			Importance: 0.5, // Default importance
-		})
-
-		history = append(history, message)
-
-		// Handle tool calls if any
-		for {
-			if len(message.ToolCalls) > 0 && executeTools {
-				for _, toolCall := range message.ToolCalls {
-					// Process each tool call
-					partialResponse, err := s.handleToolCall(
-						ctx,
-						&toolCall,
-						activeAgent,
-						contextVariables,
-						debug,
-					)
-					if err != nil {
-						return Response{}, err
-					}
-
-					// Store tool call result as memory
-					if len(partialResponse.Messages) > 0 {
-						activeAgent.Memory.AddMemory(Memory{
-							Content:   partialResponse.Messages[0].Content,
-							Type:     "tool_result",
-							Context:  contextVariables,
-							Timestamp: time.Now(),
-							Importance: 0.7, // Tool results are slightly more important
-							References: []string{toolCall.Function.Name},
-						})
-					}
-
-					history = append(history, partialResponse.Messages...) // Include the tool_call_id here
-					for k, v := range partialResponse.ContextVariables {
-						contextVariables[k] = v
-					}
-					if partialResponse.Agent != nil {
-						activeAgent = partialResponse.Agent
-					}
-				}
-
-				// Get the assistant's response after all tool results
-				resp, err := s.getChatCompletion(
-					ctx,
-					activeAgent,
-					history,
-					contextVariables,
-					modelOverride,
-					stream,
-					debug,
-				)
+		// Check for tool calls
+		if len(choice.Message.ToolCalls) > 0 && executeTools {
+			var toolResponses []Response
+			for _, toolCall := range choice.Message.ToolCalls {
+				toolResp, err := s.handleToolCall(ctx, &toolCall, activeAgent, contextVariables, debug)
 				if err != nil {
 					return Response{}, err
 				}
-
-				if len(resp.Choices) == 0 {
-					return Response{}, fmt.Errorf("no choices in response")
-				}
-
-				choice = resp.Choices[0]
-				message = choice.Message
-
-				if debug {
-					log.Printf("Received completion: %+v\n", message)
-				}
-
-				message.Role = openai.ChatMessageRoleAssistant
-				message.Name = activeAgent.Name
-
-				// Store assistant's follow-up response as memory
-				activeAgent.Memory.AddMemory(Memory{
-					Content:   message.Content,
-					Type:     "conversation",
-					Context:  contextVariables,
-					Timestamp: time.Now(),
-					Importance: 0.5,
+				toolResponses = append(toolResponses, toolResp)
+				// Add the tool response as a function message
+				history = append(history, llm.Message{
+					Role: llm.Role(toolResp.Messages[0].Role),
+					Content: toolResp.Messages[0].Content,
+					Name: toolCall.Function.Name,
 				})
-
-				history = append(history, message)
-			} else {
-				// Exit the loop if no more tool calls
-				break
+				// Update the active agent if the tool result includes an agent transfer
+				if toolResp.Agent != nil {
+					activeAgent = toolResp.Agent
+				}
 			}
-		}
-
-		// Break the outer loop if the assistant didn't make a tool call
-		if message.FunctionCall == nil || !executeTools {
-			if debug {
-				log.Println("Ending turn.")
+			turns++
+			// Add the assistant's message with tool calls
+			history = append(history, llm.Message{
+				Role: llm.RoleAssistant,
+				Content: "",
+				ToolCalls: choice.Message.ToolCalls,
+			})
+		} else {
+			// Return final response only if there are no tool calls
+			finalResponse := Response{
+				Messages:         history[initLen:],
+				Agent:            activeAgent,
+				ContextVariables: contextVariables,
 			}
-			break
+			return finalResponse, nil
 		}
 	}
 
-	// Return the final response
+	// Return response if max turns reached
 	return Response{
 		Messages:         history[initLen:],
 		Agent:            activeAgent,

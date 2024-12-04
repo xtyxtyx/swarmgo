@@ -2,26 +2,20 @@ package swarmgo
 
 import (
 	"net/http"
+
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
+// ClientConfig represents the configuration for an LLM client
 type ClientConfig struct {
-	AuthToken            string
-	BaseURL              string
-	OrgID                string
-	APIType              APIType
-	APIVersion           string // required when APIType is APITypeAzure or APITypeAzureAD
-	AssistantVersion     string
-	AzureModelMapperFunc func(model string) string // replace model to azure deployment name func
-	HTTPClient           *http.Client
-
+	Provider          llm.LLMProvider
+	AuthToken         string
+	BaseURL           string
+	OrgID             string
+	APIVersion        string
+	AssistantVersion  string
+	ModelMapperFunc   func(model string) string // replace model to provider-specific deployment name
+	HTTPClient        *http.Client
 	EmptyMessagesLimit uint
+	Options           map[string]interface{} // Additional provider-specific options
 }
-
-type APIType string
-
-const (
-	APITypeOpenAI          APIType = "OPEN_AI"
-	APITypeAzure           APIType = "AZURE"
-	APITypeAzureAD         APIType = "AZURE_AD"
-	APITypeCloudflareAzure APIType = "CLOUDFLARE_AZURE"
-)

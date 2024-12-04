@@ -8,7 +8,7 @@ import (
 
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 // CustomStreamHandler implements the StreamHandler interface with custom behavior
@@ -25,11 +25,11 @@ func (h *CustomStreamHandler) OnToken(token string) {
 	fmt.Print(token) // Print tokens as they arrive
 }
 
-func (h *CustomStreamHandler) OnToolCall(toolCall openai.ToolCall) {
+func (h *CustomStreamHandler) OnToolCall(toolCall llm.ToolCall) {
 	fmt.Printf("\n🛠️ Tool called: %s\n", toolCall.Function.Name)
 }
 
-func (h *CustomStreamHandler) OnComplete(message openai.ChatCompletionMessage) {
+func (h *CustomStreamHandler) OnComplete(message llm.Message) {
 	fmt.Printf("\n✅ Complete message received! Total tokens: %d\n", len(h.tokens))
 }
 
@@ -46,13 +46,13 @@ func main() {
 	}
 
 	// Initialize the Swarm client
-	client := swarmgo.NewSwarm(apiKey)
+	client := swarmgo.NewSwarm(apiKey, llm.OpenAI)
 
 	// Create an agent with a simple calculator function
 	agent := &swarmgo.Agent{
 		Name:         "Calculator",
 		Instructions: "You are a helpful calculator assistant. Use the calculate function when needed.",
-		Model:        "gpt-4o",
+		Model:        "gpt-4",
 		Functions: []swarmgo.AgentFunction{
 			{
 				Name:        "calculate",
@@ -90,28 +90,28 @@ func main() {
 						result = x * y
 					case "divide":
 						if y == 0 {
-							return swarmgo.Result{Value: "Error: division by zero"}
+							return swarmgo.Result{Success: false, Data: "Error: division by zero"}
 						}
 						result = x / y
 					default:
-						return swarmgo.Result{Value: fmt.Sprintf("Error: unknown operation: %s", op)}
+						return swarmgo.Result{Success: false, Data: fmt.Sprintf("Error: unknown operation: %s", op)}
 					}
 
 					if err != nil {
-						return swarmgo.Result{Value: fmt.Sprintf("Error: %v", err)}
+						return swarmgo.Result{Success: false, Data: fmt.Sprintf("Error: %v", err)}
 					}
 
-					return swarmgo.Result{Value: fmt.Sprintf("%.2f", result)}
+					return swarmgo.Result{Success: true, Data: fmt.Sprintf("%.2f", result)}
 				},
 			},
 		},
 	}
 
 	// Create initial messages
-	messages := []openai.ChatCompletionMessage{
+	messages := []llm.Message{
 		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "What is 42 divided by 56?",
+			Role:    llm.RoleUser,
+			Content: "What is 42 multiplied by 56?",
 		},
 	}
 

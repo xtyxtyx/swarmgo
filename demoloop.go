@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func RunDemoLoop(client *Swarm, agent *Agent) {
@@ -16,10 +16,10 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 	ctx := context.Background()
 	
 	// Print a starting message to the console
-	fmt.Println("Starting Swarm CLI 🐝")
+	fmt.Println("Starting Swarm CLI ")
 
 	// Initialize a slice to store chat messages
-	messages := []openai.ChatCompletionMessage{}
+	messages := []llm.Message{}
 	
 	// Create a new reader to read user input from the standard input
 	reader := bufio.NewReader(os.Stdin)
@@ -37,8 +37,8 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 		userInput = strings.TrimSpace(userInput)
 		
 		// Append the user's input as a new message to the messages slice
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    "user",
+		messages = append(messages, llm.Message{
+			Role:    llm.RoleUser,
 			Content: userInput,
 		})
 
@@ -51,8 +51,13 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 		// Process the response and print it to the console
 		ProcessAndPrintResponse(response)
 		
-		// Append the response messages to the messages slice
-		messages = append(messages, response.Messages...)
+		// Only keep the last assistant message if it has content
+		for i := len(response.Messages) - 1; i >= 0; i-- {
+			if response.Messages[i].Role == llm.RoleAssistant && response.Messages[i].Content != "" {
+				messages = append(messages, response.Messages[i])
+				break
+			}
+		}
 
 		if response.Agent != nil && response.Agent.Name != activeAgent.Name {
 			fmt.Printf("Transferring conversation to %s.\n", response.Agent.Name)

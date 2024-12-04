@@ -9,12 +9,12 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/prathyushnallamothu/swarmgo"
-	"github.com/sashabaranov/go-openai"
+	"github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 // createMemoryAgent creates an agent with memory capabilities and custom functions
 func createMemoryAgent() *swarmgo.Agent {
-	agent := swarmgo.NewAgent("MemoryAgent", "gpt-4")
+	agent := swarmgo.NewAgent("MemoryAgent", "gpt-4", llm.OpenAI)
 	agent.Instructions = `You are a helpful assistant with memory capabilities. 
 	You can remember our conversations and use that information in future responses.
 	When asked about past interactions, search your memories and provide relevant information.`
@@ -53,7 +53,7 @@ func createMemoryAgent() *swarmgo.Agent {
 				agent.Memory.AddMemory(memory)
 
 				return swarmgo.Result{
-					Value: fmt.Sprintf("Stored fact: %s (importance: %.2f)", content, importance),
+					Data: fmt.Sprintf("Stored fact: %s (importance: %.2f)", content, importance),
 				}
 			},
 		},
@@ -98,7 +98,7 @@ func createMemoryAgent() *swarmgo.Agent {
 					result = "No memories found."
 				}
 
-				return swarmgo.Result{Value: result}
+				return swarmgo.Result{Data: result}
 			},
 		},
 	}
@@ -118,7 +118,7 @@ func main() {
 	}
 
 	// Create a new swarm and memory-enabled agent
-	client := swarmgo.NewSwarm(apiKey)
+	client := swarmgo.NewSwarm(apiKey, llm.OpenAI)
 	agent := createMemoryAgent()
 
 	// Example conversation demonstrating memory capabilities
@@ -140,7 +140,7 @@ func main() {
 		fmt.Printf("\n👤 User: %s\n", userInput)
 
 		// Create message for this turn
-		messages := []openai.ChatCompletionMessage{
+		messages := []llm.Message{
 			{Role: "user", Content: userInput},
 		}
 
