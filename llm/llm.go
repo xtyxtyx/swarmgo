@@ -11,6 +11,7 @@ const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
+	RoleFunction  Role = "function"
 )
 
 // LLMProvider represents different LLM providers

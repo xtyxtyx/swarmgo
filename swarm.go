@@ -23,6 +23,15 @@ func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
 			client: client,
 		}
 	}
+	if provider == llm.Gemini {
+		client, err := llm.NewGeminiLLM(apiKey)
+		if err != nil {
+			log.Fatalf("Failed to create Gemini client: %v", err)
+		}
+		return &Swarm{
+			client: client,
+		}
+	}
 	return nil
 }
 
