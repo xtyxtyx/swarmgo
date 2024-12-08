@@ -8,33 +8,40 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/prathyushnallamothu/swarmgo"
 	"github.com/prathyushnallamothu/swarmgo/llm"
-	"github.com/sashabaranov/go-openai"
 )
 
 // CustomStreamHandler handles streaming responses with progress updates
 type CustomStreamHandler struct {
 	totalTokens int
+	startTime   time.Time
 }
 
 func (h *CustomStreamHandler) OnStart() {
+	h.startTime = time.Now()
 	fmt.Println("🚀 Starting file analysis...")
 }
 
 func (h *CustomStreamHandler) OnToken(token string) {
 	h.totalTokens++
-	// Print progress every 20 tokens
-	if h.totalTokens%20 == 0 {
-		fmt.Printf("📝 Processing... (%d tokens)\n", h.totalTokens)
+	// Print progress every 50 tokens with tokens per second
+	if h.totalTokens%50 == 0 {
+		elapsed := time.Since(h.startTime).Seconds()
+		tokensPerSec := float64(h.totalTokens) / elapsed
+		fmt.Printf("\r📝 Processing... (%d tokens, %.1f tokens/sec)", h.totalTokens, tokensPerSec)
 	}
 	fmt.Print(token)
 }
 
 func (h *CustomStreamHandler) OnComplete(msg llm.Message) {
-	fmt.Printf("\n\n✅ Analysis complete! Total tokens processed: %d\n", h.totalTokens)
+	elapsed := time.Since(h.startTime).Seconds()
+	tokensPerSec := float64(h.totalTokens) / elapsed
+	fmt.Printf("\n\n✅ Analysis complete! Processed %d tokens in %.1f seconds (%.1f tokens/sec)\n",
+		h.totalTokens, elapsed, tokensPerSec)
 }
 
 func (h *CustomStreamHandler) OnError(err error) {
@@ -46,12 +53,33 @@ func (h *CustomStreamHandler) OnToolCall(toolCall llm.ToolCall) {
 }
 
 // FileProcessor handles file operations
-type FileProcessor struct{}
+type FileProcessor struct {
+	maxFileSize int64 // maximum file size in bytes
+}
+
+func NewFileProcessor(maxFileSize int64) *FileProcessor {
+	return &FileProcessor{
+		maxFileSize: maxFileSize,
+	}
+}
 
 func (fp *FileProcessor) ReadFile(path string) (string, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	// Check if file exists
+	fileInfo, err := os.Stat(path)
+	if os.IsNotExist(err) {
 		return "", fmt.Errorf("file does not exist: %s", path)
 	}
+	if err != nil {
+		return "", fmt.Errorf("error accessing file: %v", err)
+	}
+
+	// Check file size
+	if fileInfo.Size() > fp.maxFileSize {
+		return "", fmt.Errorf("file size %d bytes exceeds maximum allowed size of %d bytes",
+			fileInfo.Size(), fp.maxFileSize)
+	}
+
+	// Read file
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("error reading file: %v", err)
@@ -65,20 +93,38 @@ func (fp *FileProcessor) CountWords(text string) int {
 }
 
 func main() {
+	// Load environment variables
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
-	// Get the project root directory
-	projectRoot := "/Users/prathyushnallamothu/Desktop/Projects/swarmgo"
-	readmePath := filepath.Join(projectRoot, "Readme.md")
-
-	// Verify the file exists
-	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
-		log.Fatalf("README.md not found at %s", readmePath)
+	// Get OpenAI API key
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("OPENAI_API_KEY environment variable is required")
 	}
 
-	fileProcessor := &FileProcessor{}
+	// Get the project root directory from environment or use current directory
+	projectRoot := os.Getenv("PROJECT_ROOT")
+	if projectRoot == "" {
+		var err error
+		projectRoot, err = os.Getwd()
+		if err != nil {
+			log.Fatalf("Error getting current directory: %v", err)
+		}
+	}
+	readmePath := filepath.Join(projectRoot, "Readme.md")
+
+	// Create file processor with 10MB max file size
+	fileProcessor := NewFileProcessor(10 * 1024 * 1024)
+
+	// Verify the file exists and is readable
+	if _, err := os.Stat(readmePath); err != nil {
+		if os.IsNotExist(err) {
+			log.Fatalf("README.md not found at %s", readmePath)
+		}
+		log.Fatalf("Error accessing README.md: %v", err)
+	}
 
 	// Define agent functions
 	functions := []swarmgo.AgentFunction{
@@ -146,43 +192,44 @@ func main() {
 	// Create a new agent with file analysis capabilities
 	agent := &swarmgo.Agent{
 		Name: "FileAnalyzer",
-		Instructions: `You are a file analysis assistant that uses tools to analyze files.
+		Instructions: `You are a file analysis assistant. Follow these steps in order:
 
-Available tools:
-1. read_file: Takes a file path and returns its contents
-2. count_words: Takes a text string and returns the word count
-
-Follow these steps exactly:
-1. First use read_file to read the content of the file
-2. Then use count_words to count the words in the file content
-3. Finally, provide a detailed analysis including:
-   - Word count
+1. Use read_file to get the file content
+2. Use count_words to count the words
+3. Analyze the content and provide:
+   - Word count and statistics
    - Key themes and topics
    - Structure and organization
-   - Main points and findings
+   - Main points
 
-Always use the tools in this exact order and wait for each tool's result before proceeding.`,
+Wait for each tool's result before proceeding.`,
 		Functions: functions,
-		Model:     openai.GPT4,
+		Model:     "gpt-4o", // Using standard GPT-4
 	}
 
 	// Create a new swarm instance
-	swarm := swarmgo.NewSwarm(os.Getenv("OPENAI_API_KEY"), llm.OpenAI)
+	swarm := swarmgo.NewSwarm(apiKey, llm.OpenAI)
 
 	// Create a custom stream handler
 	handler := &CustomStreamHandler{}
 
-	// Example message to analyze a file
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Create the analysis request
 	messages := []llm.Message{
 		{
 			Role:    llm.RoleUser,
-			Content: fmt.Sprintf("Please analyze %s by following these steps:\n1. Use read_file to read %s\n2. Use count_words on the file content\n3. Provide a detailed analysis", readmePath, readmePath),
+			Content: fmt.Sprintf("Please analyze the file at %s. First read it using read_file, then count words with count_words.", readmePath),
 		},
 	}
 
+	fmt.Printf("Debug: Starting analysis with model %s\n", agent.Model)
+	fmt.Printf("Debug: Reading file: %s\n", readmePath)
+
 	// Start streaming analysis
-	ctx := context.Background()
-	if err := swarm.StreamingResponse(ctx, agent, messages, nil, "", handler, true); err != nil {
+	if err := swarm.StreamingResponse(ctx, agent, messages, nil, "", handler, false); err != nil {
 		log.Fatalf("Error in streaming response: %v", err)
 	}
 }
