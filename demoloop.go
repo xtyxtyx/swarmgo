@@ -49,14 +49,22 @@ func RunDemoLoop(client *Swarm, agent *Agent) {
 		}
 
 		// Process the response and print it to the console
-		ProcessAndPrintResponse(response)
-		
-		// Only keep the last assistant message if it has content
-		for i := len(response.Messages) - 1; i >= 0; i-- {
-			if response.Messages[i].Role == llm.RoleAssistant && response.Messages[i].Content != "" {
-				messages = append(messages, response.Messages[i])
-				break
+		var lastAssistantMessage llm.Message
+		for _, msg := range response.Messages {
+			switch msg.Role {
+			case llm.RoleAssistant:
+				if msg.Content != "" {
+					fmt.Printf("\033[94m%s\033[0m: %s\n", activeAgent.Name, msg.Content)
+					lastAssistantMessage = msg
+				}
+			case llm.RoleFunction:
+				fmt.Printf("\033[92mFunction Result\033[0m: %s\n", msg.Content)
 			}
+		}
+		
+		// Only keep the last assistant message in history
+		if lastAssistantMessage.Content != "" {
+			messages = append(messages, lastAssistantMessage)
 		}
 
 		if response.Agent != nil && response.Agent.Name != activeAgent.Name {

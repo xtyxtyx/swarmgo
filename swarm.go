@@ -196,67 +196,72 @@ func (s *Swarm) Run(
 		})
 	}
 
-	for {
-		if maxTurns > 0 && turns >= maxTurns {
-			break
-		}
+	// Get chat completion from LLM
+	resp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
+	if err != nil {
+		return Response{}, err
+	}
 
-		// Get chat completion from LLM
-		resp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
+	// Process the response
+	if len(resp.Choices) == 0 {
+		return Response{}, fmt.Errorf("no choices in response")
+	}
+
+	choice := resp.Choices[0]
+	history = append(history, choice.Message)
+
+	// Check for tool calls
+	if len(choice.Message.ToolCalls) > 0 && executeTools {
+		var toolResponses []Response
+		for _, toolCall := range choice.Message.ToolCalls {
+			toolResp, err := s.handleToolCall(ctx, &toolCall, activeAgent, contextVariables, debug)
+			if err != nil {
+				return Response{}, err
+			}
+			toolResponses = append(toolResponses, toolResp)
+			// Add the tool response as a function message
+			history = append(history, llm.Message{
+				Role:    llm.Role(toolResp.Messages[0].Role),
+				Content: toolResp.Messages[0].Content,
+				Name:    toolCall.Function.Name,
+			})
+			// Update the active agent if the tool result includes an agent transfer
+			if toolResp.Agent != nil {
+				activeAgent = toolResp.Agent
+			}
+		}
+		turns++
+		// Add the assistant's message with tool calls
+		history = append(history, llm.Message{
+			Role:      llm.RoleAssistant,
+			Content:   "",
+			ToolCalls: choice.Message.ToolCalls,
+		})
+
+		// Get a follow-up response from the AI after tool execution
+		followUpResp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
 		if err != nil {
 			return Response{}, err
 		}
 
-		// Process the response
-		if len(resp.Choices) == 0 {
-			return Response{}, fmt.Errorf("no choices in response")
+		if len(followUpResp.Choices) > 0 {
+			followUpChoice := followUpResp.Choices[0]
+			history = append(history, followUpChoice.Message)
 		}
 
-		choice := resp.Choices[0]
-		history = append(history, choice.Message)
-
-		// Check for tool calls
-		if len(choice.Message.ToolCalls) > 0 && executeTools {
-			var toolResponses []Response
-			for _, toolCall := range choice.Message.ToolCalls {
-				toolResp, err := s.handleToolCall(ctx, &toolCall, activeAgent, contextVariables, debug)
-				if err != nil {
-					return Response{}, err
-				}
-				toolResponses = append(toolResponses, toolResp)
-				// Add the tool response as a function message
-				history = append(history, llm.Message{
-					Role: llm.Role(toolResp.Messages[0].Role),
-					Content: toolResp.Messages[0].Content,
-					Name: toolCall.Function.Name,
-				})
-				// Update the active agent if the tool result includes an agent transfer
-				if toolResp.Agent != nil {
-					activeAgent = toolResp.Agent
-				}
-			}
-			turns++
-			// Add the assistant's message with tool calls
-			history = append(history, llm.Message{
-				Role: llm.RoleAssistant,
-				Content: "",
-				ToolCalls: choice.Message.ToolCalls,
-			})
-		} else {
-			// Return final response only if there are no tool calls
-			finalResponse := Response{
-				Messages:         history[initLen:],
-				Agent:            activeAgent,
-				ContextVariables: contextVariables,
-			}
-			return finalResponse, nil
+		// Return response with all messages including the follow-up
+		return Response{
+			Messages:         history[initLen:],
+			Agent:            activeAgent,
+			ContextVariables: contextVariables,
+		}, nil
+	} else {
+		// Return final response only if there are no tool calls
+		finalResponse := Response{
+			Messages:         history[initLen:],
+			Agent:            activeAgent,
+			ContextVariables: contextVariables,
 		}
+		return finalResponse, nil
 	}
-
-	// Return response if max turns reached
-	return Response{
-		Messages:         history[initLen:],
-		Agent:            activeAgent,
-		ContextVariables: contextVariables,
-	}, nil
 }
