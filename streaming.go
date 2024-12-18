@@ -20,11 +20,11 @@ type StreamHandler interface {
 // DefaultStreamHandler provides a basic implementation of StreamHandler
 type DefaultStreamHandler struct{}
 
-func (h *DefaultStreamHandler) OnStart()                              {}
-func (h *DefaultStreamHandler) OnToken(token string)                  {}
-func (h *DefaultStreamHandler) OnToolCall(toolCall llm.ToolCall)      {}
-func (h *DefaultStreamHandler) OnComplete(message llm.Message)        {}
-func (h *DefaultStreamHandler) OnError(err error)                     {}
+func (h *DefaultStreamHandler) OnStart()                         {}
+func (h *DefaultStreamHandler) OnToken(token string)             {}
+func (h *DefaultStreamHandler) OnToolCall(toolCall llm.ToolCall) {}
+func (h *DefaultStreamHandler) OnComplete(message llm.Message)   {}
+func (h *DefaultStreamHandler) OnError(err error)                {}
 
 // StreamingResponse handles streaming chat completions
 func (s *Swarm) StreamingResponse(
@@ -44,6 +44,12 @@ func (s *Swarm) StreamingResponse(
 		contextVariables = make(map[string]interface{})
 	}
 
+	if debug {
+		fmt.Printf("Debug: Using model: %s\n", agent.Model)
+		fmt.Printf("Debug: Number of messages: %d\n", len(messages))
+		fmt.Printf("Debug: Number of tools: %d\n", len(agent.Functions))
+	}
+
 	// Prepare the initial system message with agent instructions
 	instructions := agent.Instructions
 	if agent.InstructionsFunc != nil {
@@ -60,6 +66,9 @@ func (s *Swarm) StreamingResponse(
 	var tools []llm.Tool
 	for _, af := range agent.Functions {
 		def := FunctionToDefinition(af)
+		if debug {
+			fmt.Printf("Debug: Adding tool: %s\n", def.Name)
+		}
 		tools = append(tools, llm.Tool{
 			Type: "function",
 			Function: &llm.Function{
@@ -76,6 +85,11 @@ func (s *Swarm) StreamingResponse(
 		model = modelOverride
 	}
 
+	if debug {
+		fmt.Printf("Debug: Final model: %s\n", model)
+		fmt.Printf("Debug: Creating stream with %d messages\n", len(allMessages))
+	}
+
 	req := llm.ChatCompletionRequest{
 		Model:    model,
 		Messages: allMessages,
@@ -85,6 +99,9 @@ func (s *Swarm) StreamingResponse(
 
 	stream, err := s.client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
+		if debug {
+			fmt.Printf("Debug: Stream creation error: %v\n", err)
+		}
 		handler.OnError(fmt.Errorf("failed to create chat completion stream: %v", err))
 		return err
 	}
@@ -100,126 +117,214 @@ func (s *Swarm) StreamingResponse(
 	toolCallsInProgress := make(map[string]*llm.ToolCall)
 	processedToolCalls := make(map[string]bool)
 
-	for {
-		response, err := stream.Recv()
-		if err != nil {
-			if err.Error() == "EOF" {
-				handler.OnComplete(currentMessage)
-				return nil
-			}
-			handler.OnError(fmt.Errorf("error receiving from stream: %v", err))
+	// createNewStream creates a new stream and handles errors
+	createNewStream := func() error {
+		if err := stream.Close(); err != nil {
+			handler.OnError(fmt.Errorf("failed to close stream: %v", err))
 			return err
 		}
 
-		if len(response.Choices) == 0 {
-			continue
+		newStream, err := s.client.CreateChatCompletionStream(ctx, req)
+		if err != nil {
+			if debug {
+				fmt.Printf("Debug: Error creating new stream: %v\n", err)
+			}
+			handler.OnError(fmt.Errorf("failed to create new stream after tool call: %v", err))
+			return err
 		}
+		stream = newStream
+		return nil
+	}
 
-		choice := response.Choices[0]
-
-		// Handle content streaming
-		if choice.Message.Content != "" {
-			currentMessage.Content += choice.Message.Content
-			handler.OnToken(choice.Message.Content)
-		}
-
-		// Handle tool calls
-		if len(choice.Message.ToolCalls) > 0 {
-			for _, toolCall := range choice.Message.ToolCalls {
-				// Skip if we've already processed this tool call
-				if processedToolCalls[toolCall.ID] {
+	for {
+		select {
+		case <-ctx.Done():
+			handler.OnError(ctx.Err())
+			return ctx.Err()
+		default:
+			response, err := stream.Recv()
+			if err != nil {
+				if err.Error() == "EOF" {
+					handler.OnComplete(currentMessage)
+					return nil
+				}
+				if err.Error() == "stream closed" {
+					// If stream is closed, try to create a new one
+					if err := createNewStream(); err != nil {
+						return err
+					}
 					continue
 				}
-
-				// Get or create the in-progress tool call
-				inProgress, exists := toolCallsInProgress[toolCall.ID]
-				if !exists {
-					inProgress = &llm.ToolCall{
-						ID:   toolCall.ID,
-						Type: toolCall.Type,
-						Function: llm.ToolCallFunction{
-							Name:      toolCall.Function.Name,
-							Arguments: "",
-						},
-					}
-					toolCallsInProgress[toolCall.ID] = inProgress
+				if debug {
+					fmt.Printf("Debug: Error receiving from stream: %v\n", err)
 				}
+				handler.OnError(fmt.Errorf("error receiving from stream: %v", err))
+				return err
+			}
 
-				// Accumulate function arguments
-				if toolCall.Function.Arguments != "" {
-					inProgress.Function.Arguments += toolCall.Function.Arguments
-				}
+			if len(response.Choices) == 0 {
+				continue
+			}
 
-				// If we have a complete tool call (has both name and arguments)
-				if inProgress.Function.Name != "" && inProgress.Function.Arguments != "" {
-					// Try to parse the arguments to verify it's complete JSON
-					var args map[string]interface{}
-					if err := json.Unmarshal([]byte(inProgress.Function.Arguments), &args); err != nil {
-						continue // Wait for more chunks
+			choice := response.Choices[0]
+
+			// Handle content streaming
+			if choice.Message.Content != "" {
+				currentMessage.Content += choice.Message.Content
+				handler.OnToken(choice.Message.Content)
+			}
+
+			// Handle tool calls
+			if len(choice.Message.ToolCalls) > 0 {
+				for _, toolCall := range choice.Message.ToolCalls {
+					if debug {
+						fmt.Printf("Debug: Processing tool call: ID=%s Name=%s\n",
+							toolCall.ID, toolCall.Function.Name)
 					}
 
-					// Mark as processed
-					processedToolCalls[toolCall.ID] = true
-
-					// Add to current message
-					currentMessage.ToolCalls = append(currentMessage.ToolCalls, *inProgress)
-					handler.OnToolCall(*inProgress)
-
-					// Find the corresponding function
-					var fn *AgentFunction
-					for _, f := range agent.Functions {
-						if f.Name == inProgress.Function.Name {
-							fn = &f
-							break
+					// Skip empty tool calls
+					if toolCall.ID == "" {
+						if debug {
+							fmt.Printf("Debug: Skipping empty tool call ID\n")
 						}
-					}
-
-					if fn == nil {
-						handler.OnError(fmt.Errorf("unknown function: %s", inProgress.Function.Name))
 						continue
 					}
 
-					// Execute the function
-					result := fn.Function(args, contextVariables)
-
-					// Create function response message
-					var resultContent string
-					if result.Error != nil {
-						resultContent = fmt.Sprintf("Error: %v", result.Error)
-					} else {
-						resultContent = fmt.Sprintf("%v", result.Data)
+					// Skip if we've already processed this tool call
+					if processedToolCalls[toolCall.ID] {
+						if debug {
+							fmt.Printf("Debug: Skipping already processed tool call: %s\n", toolCall.ID)
+						}
+						continue
 					}
 
-					// Add function response to messages
-					functionMessage := llm.Message{
-						Role:    llm.Role(inProgress.Function.Name),
-						Content: resultContent,
-						Name:    inProgress.Function.Name,
+					// Get or create the in-progress tool call
+					inProgress, exists := toolCallsInProgress[toolCall.ID]
+					if !exists {
+						inProgress = &llm.ToolCall{
+							ID:   toolCall.ID,
+							Type: toolCall.Type,
+							Function: llm.ToolCallFunction{
+								Name:      toolCall.Function.Name,
+								Arguments: "",
+							},
+						}
+						toolCallsInProgress[toolCall.ID] = inProgress
+						if debug {
+							fmt.Printf("Debug: Created new tool call: %s, Name: %s\n",
+								toolCall.ID, toolCall.Function.Name)
+						}
 					}
 
-					// Add the current message and function result to messages
-					allMessages = append(allMessages, currentMessage)
-					allMessages = append(allMessages, functionMessage)
-
-					// Create a new request with updated messages
-					req.Messages = allMessages
-
-					// Close current stream and start a new one
-					stream.Close()
-					stream, err = s.client.CreateChatCompletionStream(ctx, req)
-					if err != nil {
-						handler.OnError(fmt.Errorf("failed to create new stream after tool call: %v", err))
-						return err
+					// Update function name if provided
+					if toolCall.Function.Name != "" && inProgress.Function.Name == "" {
+						inProgress.Function.Name = toolCall.Function.Name
+						if debug {
+							fmt.Printf("Debug: Updated function name for tool call %s: %s\n",
+								toolCall.ID, toolCall.Function.Name)
+						}
 					}
 
-					// Reset current message for new response
-					currentMessage = llm.Message{
-						Role: llm.RoleAssistant,
-						Name: agent.Name,
-					}
+					// Accumulate function arguments
+					if toolCall.Function.Arguments != "" {
+						// Always append new arguments
+						inProgress.Function.Arguments += toolCall.Function.Arguments
+						if debug {
+							fmt.Printf("Debug: Updated arguments for tool call %s: %s\n",
+								toolCall.ID, inProgress.Function.Arguments)
+						}
 
-					// Clean up the completed tool call
-					delete(toolCallsInProgress, toolCall.ID)
+						// Try to parse the arguments to verify it's complete JSON
+						var args map[string]interface{}
+						if err := json.Unmarshal([]byte(inProgress.Function.Arguments), &args); err == nil {
+							if debug {
+								fmt.Printf("Debug: Valid JSON arguments for tool call %s: %v\n",
+									toolCall.ID, args)
+							}
+
+							// Only execute if we haven't processed this tool call yet
+							if !processedToolCalls[toolCall.ID] {
+								// Find and execute the corresponding function
+								var fn *AgentFunction
+								for _, f := range agent.Functions {
+									if f.Name == inProgress.Function.Name {
+										fn = &f
+										break
+									}
+								}
+
+								if fn == nil {
+									err := fmt.Errorf("unknown function: %s", inProgress.Function.Name)
+									handler.OnError(err)
+									continue
+								}
+
+								if debug {
+									fmt.Printf("Debug: Executing function %s with args: %v\n",
+										inProgress.Function.Name, args)
+								}
+
+								// Execute the function
+								result := fn.Function(args, contextVariables)
+
+								// Create function response message
+								var resultContent string
+								if result.Error != nil {
+									resultContent = fmt.Sprintf("Error: %v", result.Error)
+									if debug {
+										fmt.Printf("Debug: Function execution error: %v\n", result.Error)
+									}
+								} else {
+									resultContent = fmt.Sprintf("%v", result.Data)
+									if debug {
+										fmt.Printf("Debug: Function execution success: %v\n", result.Data)
+									}
+								}
+
+								// Mark as processed and clean up
+								processedToolCalls[toolCall.ID] = true
+								delete(toolCallsInProgress, toolCall.ID)
+
+								// Add to current message and notify handler
+								currentMessage.ToolCalls = append(currentMessage.ToolCalls, *inProgress)
+								handler.OnToolCall(*inProgress)
+
+								// Add function response message
+								functionMessage := llm.Message{
+									Role:    llm.RoleFunction,
+									Content: resultContent,
+									Name:    inProgress.Function.Name,
+								}
+
+								// Add messages and create new stream
+								allMessages = append(allMessages, currentMessage)
+								allMessages = append(allMessages, functionMessage)
+								req.Messages = allMessages
+
+								if debug {
+									fmt.Printf("Debug: Added function response message: %s = %s\n",
+										functionMessage.Name, functionMessage.Content)
+								}
+
+								if err := createNewStream(); err != nil {
+									handler.OnError(fmt.Errorf("failed to create new stream after tool call: %v", err))
+									return err
+								}
+
+								if debug {
+									fmt.Printf("Debug: Created new stream after tool call, messages count: %d\n", len(allMessages))
+								}
+
+								// Reset current message for new response
+								currentMessage = llm.Message{
+									Role: llm.RoleAssistant,
+									Name: agent.Name,
+								}
+							}
+						} else if debug {
+							fmt.Printf("Debug: Incomplete JSON for tool call %s: %v\n", toolCall.ID, err)
+						}
+					}
 				}
 			}
 		}

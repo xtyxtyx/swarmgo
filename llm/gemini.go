@@ -361,29 +361,16 @@ func (g *GeminiLLM) CreateChatCompletion(ctx context.Context, req ChatCompletion
 
 // geminiStreamWrapper wraps Gemini's stream to implement our ChatCompletionStream interface
 type geminiStreamWrapper struct {
-	iter           *genai.GenerateContentResponseIterator
-	client         *GeminiLLM
-	req            ChatCompletionRequest
-	ctx            context.Context
-	inFunctionCall bool
-	functionResult *Message // Store function result to return after function call
+	iter              *genai.GenerateContentResponseIterator
+	client            *GeminiLLM
+	req               ChatCompletionRequest
+	ctx               context.Context
+	inFunctionCall    bool
+	currentToolCall   *ToolCall
+	toolCallBuffer    map[string]*ToolCall
 }
 
 func (w *geminiStreamWrapper) Recv() (ChatCompletionResponse, error) {
-	// If we have a function result to return, return it and clear it
-	if w.functionResult != nil {
-		resp := ChatCompletionResponse{
-			Choices: []Choice{
-				{
-					Index:   0,
-					Message: *w.functionResult,
-				},
-			},
-		}
-		w.functionResult = nil
-		return resp, nil
-	}
-
 	// Get next response from iterator
 	resp, err := w.iter.Next()
 	if err != nil {
@@ -415,40 +402,42 @@ func (w *geminiStreamWrapper) Recv() (ChatCompletionResponse, error) {
 					if err != nil {
 						continue
 					}
-					msg.ToolCalls = append(msg.ToolCalls, ToolCall{
-						Type: "function",
-						Function: ToolCallFunction{
-							Name:      p.Name,
-							Arguments: string(args),
-						},
-					})
+
+					// Create or update tool call
+					toolCall, exists := w.toolCallBuffer[p.Name]
+					if !exists {
+						toolCall = &ToolCall{
+							ID:   p.Name, // Use function name as ID since Gemini doesn't provide one
+							Type: "function",
+							Function: ToolCallFunction{
+								Name:      p.Name,
+								Arguments: "",
+							},
+						}
+						w.toolCallBuffer[p.Name] = toolCall
+						w.currentToolCall = toolCall
+					}
+
+					// Update arguments
+					toolCall.Function.Arguments += string(args)
+
+					// Try to parse the arguments to verify if it's complete JSON
+					var parsedArgs map[string]interface{}
+					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &parsedArgs); err == nil {
+						// Add to message's tool calls and remove from buffer
+						msg.ToolCalls = append(msg.ToolCalls, *toolCall)
+						delete(w.toolCallBuffer, p.Name)
+						w.currentToolCall = nil
+						w.inFunctionCall = true
+					}
 				}
 			}
 		}
 		msg.Content = strings.Join(textParts, "")
 
-		// If we have function calls and we're not in a function calling cycle
-		if len(msg.ToolCalls) > 0 && !w.inFunctionCall {
-			w.inFunctionCall = true
-			
-			// Store the function result to return in next Recv call
-			w.functionResult = &Message{
-				Role:      "function",
-				Content:   msg.ToolCalls[0].Function.Arguments,
-				Name:     msg.ToolCalls[0].Function.Name,
-			}
-
-			choices[i] = Choice{
-				Index:   i,
-				Message: msg,
-				FinishReason: string(c.FinishReason),
-			}
-			break
-		}
-
 		choices[i] = Choice{
-			Index:   i,
-			Message: msg,
+			Index:        i,
+			Message:      msg,
 			FinishReason: string(c.FinishReason),
 		}
 	}
@@ -467,9 +456,13 @@ func (w *geminiStreamWrapper) handleFunctionResponse() (ChatCompletionResponse, 
 	lastAssistantMsg := w.req.Messages[len(w.req.Messages)-1]
 	newMessages = append(newMessages, lastAssistantMsg)
 
-	// Add function result
-	if w.functionResult != nil {
-		newMessages = append(newMessages, *w.functionResult)
+	// Add function results from tool calls
+	for _, toolCall := range lastAssistantMsg.ToolCalls {
+		newMessages = append(newMessages, Message{
+			Role:    "function",
+			Content: toolCall.Function.Arguments,
+			Name:    toolCall.Function.Name,
+		})
 	}
 
 	// Create a new model instance for the final response
@@ -538,5 +531,6 @@ func (g *GeminiLLM) CreateChatCompletionStream(ctx context.Context, req ChatComp
 		req:            req,
 		ctx:            ctx,
 		inFunctionCall: inFunctionCall,
+		toolCallBuffer: make(map[string]*ToolCall),
 	}, nil
 }

@@ -2,6 +2,10 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -16,7 +20,6 @@ func NewOpenAILLM(apiKey string) *OpenAILLM {
 	client := openai.NewClient(apiKey)
 	return &OpenAILLM{client: client}
 }
-
 
 // convertToOpenAIMessages converts our generic Message type to OpenAI's message type
 func convertToOpenAIMessages(messages []Message) []openai.ChatCompletionMessage {
@@ -53,7 +56,7 @@ func convertToOpenAITools(tools []Tool) []openai.Tool {
 	if len(tools) == 0 {
 		return nil
 	}
-	
+
 	openAITools := make([]openai.Tool, len(tools))
 	for i, tool := range tools {
 		def := openai.FunctionDefinition{
@@ -90,9 +93,9 @@ func convertFromOpenAIToolCalls(toolCalls []openai.ToolCall) []ToolCall {
 // CreateChatCompletion implements the LLM interface for OpenAI
 func (o *OpenAILLM) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (ChatCompletionResponse, error) {
 	openAIReq := openai.ChatCompletionRequest{
-		Model:            req.Model,
-		Messages:         convertToOpenAIMessages(req.Messages),
-		Temperature:      float32(req.Temperature),
+		Model:           req.Model,
+		Messages:        convertToOpenAIMessages(req.Messages),
+		Temperature:     float32(req.Temperature),
 		TopP:            float32(req.TopP),
 		N:               req.N,
 		Stop:            req.Stop,
@@ -128,38 +131,97 @@ func (o *OpenAILLM) CreateChatCompletion(ctx context.Context, req ChatCompletion
 	}, nil
 }
 
-// openAIStreamWrapper wraps OpenAI's stream to implement our ChatCompletionStream interface
+// openAIStreamWrapper wraps the OpenAI stream
 type openAIStreamWrapper struct {
-	stream *openai.ChatCompletionStream
+	stream          *openai.ChatCompletionStream
+	currentToolCall *ToolCall
+	toolCallBuffer  map[string]*ToolCall
+}
+
+func newOpenAIStreamWrapper(stream *openai.ChatCompletionStream) *openAIStreamWrapper {
+	return &openAIStreamWrapper{
+		stream:         stream,
+		toolCallBuffer: make(map[string]*ToolCall),
+	}
 }
 
 func (w *openAIStreamWrapper) Recv() (ChatCompletionResponse, error) {
 	resp, err := w.stream.Recv()
 	if err != nil {
-		return ChatCompletionResponse{}, err
+		if err == io.EOF {
+			return ChatCompletionResponse{}, err
+		}
+		var openAIErr *openai.APIError
+		if errors.As(err, &openAIErr) {
+			return ChatCompletionResponse{}, fmt.Errorf("OpenAI API error: %s - %s", openAIErr.Code, openAIErr.Message)
+		}
+		return ChatCompletionResponse{}, fmt.Errorf("stream receive failed: %w", err)
 	}
 
 	choices := make([]Choice, len(resp.Choices))
 	for i, c := range resp.Choices {
-		message := convertFromOpenAIDelta(c.Delta)
-		message.Role = Role(c.Delta.Role)
-		
+		message := Message{
+			Role:    Role(c.Delta.Role),
+			Content: c.Delta.Content,
+		}
+
 		// Handle tool calls in delta
 		if len(c.Delta.ToolCalls) > 0 {
-			message.ToolCalls = make([]ToolCall, len(c.Delta.ToolCalls))
-			for j, tc := range c.Delta.ToolCalls {
-				toolCall := ToolCall{
-					ID:   tc.ID,
-					Type: string(tc.Type),
-					Function: ToolCallFunction{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
+			message.ToolCalls = make([]ToolCall, 0)
+			for _, tc := range c.Delta.ToolCalls {
+				// Get or create tool call buffer
+				toolCall, exists := w.toolCallBuffer[tc.ID]
+				if !exists {
+					if tc.ID == "" {
+						// Skip empty IDs but accumulate arguments if present
+						if tc.Function.Arguments != "" && w.currentToolCall != nil {
+							w.currentToolCall.Function.Arguments += tc.Function.Arguments
+
+							// Try to parse the arguments to verify if it's complete JSON
+							var args map[string]interface{}
+							if err := json.Unmarshal([]byte(w.currentToolCall.Function.Arguments), &args); err == nil {
+								// Add to message's tool calls and remove from buffer
+								message.ToolCalls = append(message.ToolCalls, *w.currentToolCall)
+								delete(w.toolCallBuffer, w.currentToolCall.ID)
+								w.currentToolCall = nil
+							}
+						}
+						continue
+					}
+					toolCall = &ToolCall{
+						ID:   tc.ID,
+						Type: string(tc.Type),
+						Function: ToolCallFunction{
+							Name:      tc.Function.Name,
+							Arguments: "",
+						},
+					}
+					w.toolCallBuffer[tc.ID] = toolCall
+					w.currentToolCall = toolCall
 				}
-				message.ToolCalls[j] = toolCall
+
+				// Update function name if provided
+				if tc.Function.Name != "" {
+					toolCall.Function.Name = tc.Function.Name
+				}
+
+				// Update arguments if provided
+				if tc.Function.Arguments != "" {
+					// Always append new arguments
+					toolCall.Function.Arguments += tc.Function.Arguments
+
+					// Try to parse the arguments to verify if it's complete JSON
+					var args map[string]interface{}
+					if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err == nil {
+						// Add to message's tool calls and remove from buffer
+						message.ToolCalls = append(message.ToolCalls, *toolCall)
+						delete(w.toolCallBuffer, tc.ID)
+						w.currentToolCall = nil
+					}
+				}
 			}
 		}
-		
+
 		choices[i] = Choice{
 			Index:        c.Index,
 			Message:      message,
@@ -174,30 +236,32 @@ func (w *openAIStreamWrapper) Recv() (ChatCompletionResponse, error) {
 }
 
 func (w *openAIStreamWrapper) Close() error {
-	w.stream.Close()
-	return nil
+	return w.stream.Close()
 }
 
 // CreateChatCompletionStream implements the LLM interface for OpenAI streaming
 func (o *OpenAILLM) CreateChatCompletionStream(ctx context.Context, req ChatCompletionRequest) (ChatCompletionStream, error) {
 	openAIReq := openai.ChatCompletionRequest{
-		Model:            req.Model,
-		Messages:         convertToOpenAIMessages(req.Messages),
-		Temperature:      req.Temperature,
-		TopP:            req.TopP,
+		Model:           req.Model,
+		Messages:        convertToOpenAIMessages(req.Messages),
+		Temperature:     float32(req.Temperature),
+		TopP:            float32(req.TopP),
 		N:               req.N,
 		Stop:            req.Stop,
 		MaxTokens:       req.MaxTokens,
-		PresencePenalty: req.PresencePenalty,
-		User:            req.User,
+		PresencePenalty: float32(req.PresencePenalty),
 		Tools:           convertToOpenAITools(req.Tools),
 		Stream:          true,
 	}
 
 	stream, err := o.client.CreateChatCompletionStream(ctx, openAIReq)
 	if err != nil {
-		return nil, err
+		var openAIErr *openai.APIError
+		if errors.As(err, &openAIErr) {
+			return nil, fmt.Errorf("OpenAI API error: %s - %s", openAIErr.Code, openAIErr.Message)
+		}
+		return nil, fmt.Errorf("stream creation failed: %w", err)
 	}
 
-	return &openAIStreamWrapper{stream: stream}, nil
+	return newOpenAIStreamWrapper(stream), nil
 }
