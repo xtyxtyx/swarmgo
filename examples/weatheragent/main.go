@@ -17,7 +17,7 @@ func getWeather(args map[string]interface{}, contextVariables map[string]interfa
 	}
 	return swarmgo.Result{
 		Success: true,
-		Data: fmt.Sprintf(`{"location": "%s", "temperature": "65", "time": "%s"}`, location, time),
+		Data: fmt.Sprintf(`The temperature in %s is 65 degrees at %s.`, location, time),
 	}
 }
 
@@ -29,7 +29,7 @@ func sendEmail(args map[string]interface{}, contextVariables map[string]interfac
 	fmt.Printf("To: %s\nSubject: %s\nBody: %s\n", recipient, subject, body)
 	return swarmgo.Result{
 		Success: true,
-		Data: "Sent!",
+		Data:    "Sent!",
 	}
 }
 
@@ -40,7 +40,7 @@ func main() {
 
 	weatherAgent := &swarmgo.Agent{
 		Name:         "WeatherAgent",
-		Instructions: "You are a helpful agent.",
+		Instructions: "You are a helpful weather assistant. Always respond in a natural, conversational way. When providing weather information, format it in a friendly manner rather than just returning raw data. For example, instead of showing JSON, say something like 'The temperature in [city] is [temp] degrees.'",
 		Functions: []swarmgo.AgentFunction{
 			{
 				Name:        "getWeather",

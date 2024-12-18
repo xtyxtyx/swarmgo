@@ -21,6 +21,11 @@ These primitives are powerful enough to express rich dynamics between tools and 
 - [Agent Handoff](#agent-handoff)
 - [Streaming Support](#streaming-support)
 - [Concurrent Agent Execution](#concurrent-agent-execution)
+- [LLM Interface](#llm-interface)
+- [Workflows](#workflows)
+  - [1. Supervisor Workflow](#1-supervisor-workflow)
+  - [2. Hierarchical Workflow](#2-hierarchical-workflow)
+  - [3. Collaborative Workflow](#3-collaborative-workflow)
 - [Examples](#examples)
 - [Contributing](#contributing)
 - [License](#license)
@@ -51,10 +56,11 @@ import (
 
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
 	openai "github.com/sashabaranov/go-openai"
+	llm "github.com/prathyushnallamothu/swarmgo/llm"
 )
 
 func main() {
-	client := swarmgo.NewSwarm("YOUR_OPENAI_API_KEY")
+	client := swarmgo.NewSwarm("YOUR_OPENAI_API_KEY", llm.OpenAI)
 
 	agent := &swarmgo.Agent{
 		Name:         "Agent",
@@ -251,7 +257,7 @@ func (h *CustomStreamHandler) OnToolCall(tool openai.ToolCall) {
 Here's an example of using streaming with a file analyzer:
 
 ```go
-client := swarmgo.NewSwarm("YOUR_OPENAI_API_KEY")
+client := swarmgo.NewSwarm("YOUR_OPENAI_API_KEY", llm.OpenAI)
 
 agent := &swarmgo.Agent{
     Name:         "FileAnalyzer",
@@ -259,7 +265,7 @@ agent := &swarmgo.Agent{
     Model:        "gpt-4",
 }
 
-handler := &CustomStreamHandler[]
+handler := &CustomStreamHandler{}
 err := client.StreamingResponse(
     context.Background(),
     agent,
@@ -366,6 +372,99 @@ Key features of the memory system:
 - **Long-term Storage**: Organized storage by memory type
 
 See the [memory_demo](examples/memory_demo/main.go) example for a complete demonstration of memory capabilities.
+
+## LLM Interface
+
+SwarmGo provides a flexible LLM (Language Learning Model) interface that supports multiple providers:
+currently OpenAI and Gemini.
+
+To initialize a new Swarm with a specific provider:
+
+```go
+// Initialize with OpenAI
+client := swarmgo.NewSwarm("YOUR_API_KEY", llm.OpenAI)
+
+// Initialize with Gemini
+client := swarmgo.NewSwarm("YOUR_API_KEY", llm.Gemini)
+```
+
+## Workflows
+
+Workflows in SwarmGo provide structured patterns for organizing and coordinating multiple agents. They help manage complex interactions between agents, define communication paths, and establish clear hierarchies or collaboration patterns. Think of workflows as the orchestration layer that determines how your agents work together to accomplish tasks.
+
+Each workflow type serves a different organizational need:
+
+### 1. Supervisor Workflow
+A hierarchical pattern where a supervisor agent oversees and coordinates tasks among worker agents. This is ideal for:
+- Task delegation and monitoring
+- Quality control and oversight
+- Centralized decision making
+- Resource allocation across workers
+
+```go
+workflow := swarmgo.NewWorkflow(apiKey, llm.OpenAI, swarmgo.SupervisorWorkflow)
+
+// Add agents to teams
+workflow.AddAgentToTeam(supervisorAgent, swarmgo.SupervisorTeam)
+workflow.AddAgentToTeam(workerAgent1, swarmgo.WorkerTeam)
+workflow.AddAgentToTeam(workerAgent2, swarmgo.WorkerTeam)
+
+// Set supervisor as team leader
+workflow.SetTeamLeader(supervisorAgent.Name, swarmgo.SupervisorTeam)
+
+// Connect agents
+workflow.ConnectAgents(supervisorAgent.Name, workerAgent1.Name)
+workflow.ConnectAgents(supervisorAgent.Name, workerAgent2.Name)
+```
+
+### 2. Hierarchical Workflow
+A tree-like structure where tasks flow from top to bottom through multiple levels. This pattern is best for:
+- Complex task decomposition
+- Specialized agent roles at each level
+- Clear reporting structures
+- Sequential processing pipelines
+
+```go
+workflow := swarmgo.NewWorkflow(apiKey, llm.OpenAI, swarmgo.HierarchicalWorkflow)
+
+// Add agents to teams
+workflow.AddAgentToTeam(managerAgent, swarmgo.SupervisorTeam)
+workflow.AddAgentToTeam(researchAgent, swarmgo.ResearchTeam)
+workflow.AddAgentToTeam(analysisAgent, swarmgo.AnalysisTeam)
+
+// Connect agents in hierarchy
+workflow.ConnectAgents(managerAgent.Name, researchAgent.Name)
+workflow.ConnectAgents(researchAgent.Name, analysisAgent.Name)
+```
+
+### 3. Collaborative Workflow
+A peer-based pattern where agents work together as equals, passing tasks between them as needed. This approach excels at:
+- Team-based problem solving
+- Parallel processing
+- Iterative refinement
+- Dynamic task sharing
+
+```go
+workflow := swarmgo.NewWorkflow(apiKey, llm.OpenAI, swarmgo.CollaborativeWorkflow)
+
+// Add agents to document team
+workflow.AddAgentToTeam(editor, swarmgo.DocumentTeam)
+workflow.AddAgentToTeam(reviewer, swarmgo.DocumentTeam)
+workflow.AddAgentToTeam(writer, swarmgo.DocumentTeam)
+
+// Connect agents in collaborative pattern
+workflow.ConnectAgents(editor.Name, reviewer.Name)
+workflow.ConnectAgents(reviewer.Name, writer.Name)
+workflow.ConnectAgents(writer.Name, editor.Name)
+```
+
+Key workflow features:
+- **Team Management**: Organize agents into functional teams
+- **Leadership Roles**: Designate team leaders for coordination
+- **Flexible Routing**: Dynamic task routing between agents
+- **Cycle Detection**: Built-in cycle detection and handling
+- **State Management**: Share state between agents in a workflow
+- **Error Handling**: Robust error handling and recovery
 
 ## Examples
 
