@@ -32,6 +32,13 @@ func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
 			client: client,
 		}
 	}
+	if provider == llm.Claude {
+		client := llm.NewClaudeLLM(apiKey)
+
+		return &Swarm{
+			client: client,
+		}
+	}
 	return nil
 }
 
@@ -208,11 +215,13 @@ func (s *Swarm) Run(
 	}
 
 	choice := resp.Choices[0]
-	history = append(history, choice.Message)
 
 	// Check for tool calls
 	if len(choice.Message.ToolCalls) > 0 && executeTools {
 		var toolResponses []Response
+		// Add the assistant's message with tool calls
+		history = append(history, choice.Message)
+
 		for _, toolCall := range choice.Message.ToolCalls {
 			toolResp, err := s.handleToolCall(ctx, &toolCall, activeAgent, contextVariables, debug)
 			if err != nil {
@@ -221,7 +230,7 @@ func (s *Swarm) Run(
 			toolResponses = append(toolResponses, toolResp)
 			// Add the tool response as a function message
 			history = append(history, llm.Message{
-				Role:    llm.Role(toolResp.Messages[0].Role),
+				Role:    llm.RoleFunction,
 				Content: toolResp.Messages[0].Content,
 				Name:    toolCall.Function.Name,
 			})
@@ -231,12 +240,6 @@ func (s *Swarm) Run(
 			}
 		}
 		turns++
-		// Add the assistant's message with tool calls
-		history = append(history, llm.Message{
-			Role:      llm.RoleAssistant,
-			Content:   "",
-			ToolCalls: choice.Message.ToolCalls,
-		})
 
 		// Get a follow-up response from the AI after tool execution
 		followUpResp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
