@@ -1,6 +1,6 @@
 module github.com/prathyushnallamothu/swarmgo
 
-go 1.23.2
+go 1.23.4
 
 require (
 	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.7
@@ -9,6 +9,7 @@ require (
 	github.com/invopop/jsonschema v0.12.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/ollama/ollama v0.5.4
 	github.com/sashabaranov/go-openai v1.32.2
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/api v0.209.0

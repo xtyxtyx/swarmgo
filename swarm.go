@@ -39,6 +39,15 @@ func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
 			client: client,
 		}
 	}
+	if provider == llm.Ollama {
+		client, err := llm.NewOllamaLLM()
+		if err != nil {
+			log.Fatalf("Failed to create Ollama client: %v", err)
+		}
+		return &Swarm{
+			client: client,
+		}
+	}
 	return nil
 }
 
@@ -259,6 +268,9 @@ func (s *Swarm) Run(
 			ContextVariables: contextVariables,
 		}, nil
 	} else {
+		// Add the assistant's message to history
+		history = append(history, choice.Message)
+		
 		// Return final response only if there are no tool calls
 		finalResponse := Response{
 			Messages:         history[initLen:],

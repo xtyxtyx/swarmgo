@@ -12,6 +12,7 @@ const (
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
 	RoleFunction  Role = "function"
+	RoleTool      Role = "tool"
 )
 
 // LLMProvider represents different LLM providers
@@ -24,6 +25,7 @@ const (
 	CloudflareAzure LLMProvider = "CLOUDFLARE_AZURE"
 	Gemini          LLMProvider = "GEMINI"
 	Claude          LLMProvider = "CLAUDE"
+	Ollama          LLMProvider = "OLLAMA"
 )
 
 // Message represents a single message in a chat conversation
@@ -106,15 +108,15 @@ type Tool struct {
 
 // Function represents a function definition
 type Function struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Parameters  map[string]interface{}    `json:"parameters"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
 // ToolCall represents a tool/function call from the LLM
 type ToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
 	Function ToolCallFunction `json:"function"`
 }
 
