@@ -26,6 +26,7 @@ const (
 	Gemini          LLMProvider = "GEMINI"
 	Claude          LLMProvider = "CLAUDE"
 	Ollama          LLMProvider = "OLLAMA"
+	DeepSeek        LLMProvider = "DEEPSEEK"
 )
 
 // Message represents a single message in a chat conversation

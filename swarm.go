@@ -48,6 +48,12 @@ func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
 			client: client,
 		}
 	}
+	if provider == llm.DeepSeek {
+		client := llm.NewDeepSeekLLM(apiKey)
+		return &Swarm{
+			client: client,
+		}
+	}
 	return nil
 }
 
@@ -256,8 +262,13 @@ func (s *Swarm) Run(
 			return Response{}, err
 		}
 
-		if len(followUpResp.Choices) > 0 {
-			followUpChoice := followUpResp.Choices[0]
+		followUpChoice := followUpResp.Choices[0]
+		// Don't process tool calls in the follow-up response to avoid loops
+		if len(followUpChoice.Message.ToolCalls) > 0 {
+			// Create a new message without the tool calls
+			followUpChoice.Message.ToolCalls = nil
+		}
+		if followUpChoice.Message.Content != "" {
 			history = append(history, followUpChoice.Message)
 		}
 
