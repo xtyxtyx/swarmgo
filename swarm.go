@@ -234,6 +234,7 @@ func (s *Swarm) Run(
 	// Check for tool calls
 	if len(choice.Message.ToolCalls) > 0 && executeTools {
 		var toolResponses []Response
+		var toolResults []ToolResult
 		// Add the assistant's message with tool calls
 		history = append(history, choice.Message)
 
@@ -243,6 +244,21 @@ func (s *Swarm) Run(
 				return Response{}, err
 			}
 			toolResponses = append(toolResponses, toolResp)
+
+			// Create ToolResult entry
+			var args interface{}
+			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+			toolResults = append(toolResults, ToolResult{
+				ToolName: toolCall.Function.Name,
+				Args:     args,
+				Result:   Result{
+					Success: true,
+					Data:    toolResp.Messages[0].Content,
+					Error:   nil,
+					Agent:   toolResp.Agent,
+				},
+			})
+
 			// Add the tool response as a function message
 			history = append(history, llm.Message{
 				Role:    llm.RoleFunction,
@@ -277,6 +293,7 @@ func (s *Swarm) Run(
 			Messages:         history[initLen:],
 			Agent:            activeAgent,
 			ContextVariables: contextVariables,
+			ToolResults:      toolResults,
 		}, nil
 	} else {
 		// Add the assistant's message to history
@@ -287,6 +304,7 @@ func (s *Swarm) Run(
 			Messages:         history[initLen:],
 			Agent:            activeAgent,
 			ContextVariables: contextVariables,
+			ToolResults:      nil, // No tool calls were made
 		}
 		return finalResponse, nil
 	}
