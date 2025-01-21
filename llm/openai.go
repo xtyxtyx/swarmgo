@@ -21,6 +21,13 @@ func NewOpenAILLM(apiKey string) *OpenAILLM {
 	return &OpenAILLM{client: client}
 }
 
+func NewOpenAILLMWithHost(apiKey string, host string) *OpenAILLM {
+	config := openai.DefaultConfig(apiKey)
+	config.BaseURL = host
+	openAIClient := openai.NewClientWithConfig(config)
+	return &OpenAILLM{client: openAIClient}
+}
+
 // convertToOpenAIMessages converts our generic Message type to OpenAI's message type
 func convertToOpenAIMessages(messages []Message) []openai.ChatCompletionMessage {
 	openAIMessages := make([]openai.ChatCompletionMessage, len(messages))

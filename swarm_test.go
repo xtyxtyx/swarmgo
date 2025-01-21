@@ -44,6 +44,15 @@ func TestNewSwarm(t *testing.T) {
 	assert.NotNil(t, sw.client)
 }
 
+// TestNewSwarmWithHost tests the NewSwarmWithHost function
+func TestNewSwarmWithHost(t *testing.T) {
+	apiKey := "test-api-key"
+	host := "https://api.xxxxx.com"
+	sw := NewSwarmWithHost(apiKey, host, llm.OpenAI)
+	assert.NotNil(t, sw)
+	assert.NotNil(t, sw.client)
+}
+
 // TestFunctionToDefinition tests the FunctionToDefinition function
 func TestFunctionToDefinition(t *testing.T) {
 	af := AgentFunction{
