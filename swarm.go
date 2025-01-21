@@ -57,6 +57,16 @@ func NewSwarm(apiKey string, provider llm.LLMProvider) *Swarm {
 	return nil
 }
 
+func NewSwarmWithHost(apiKey, host string, provider llm.LLMProvider) *Swarm {
+	if provider == llm.OpenAI {
+		client := llm.NewOpenAILLMWithHost(apiKey, host)
+		return &Swarm{
+			client: client,
+		}
+	}
+	return nil
+}
+
 // getChatCompletion requests a chat completion from the LLM
 func (s *Swarm) getChatCompletion(
 	ctx context.Context,
@@ -251,7 +261,7 @@ func (s *Swarm) Run(
 			toolResults = append(toolResults, ToolResult{
 				ToolName: toolCall.Function.Name,
 				Args:     args,
-				Result:   Result{
+				Result: Result{
 					Success: true,
 					Data:    toolResp.Messages[0].Content,
 					Error:   nil,
@@ -298,7 +308,7 @@ func (s *Swarm) Run(
 	} else {
 		// Add the assistant's message to history
 		history = append(history, choice.Message)
-		
+
 		// Return final response only if there are no tool calls
 		finalResponse := Response{
 			Messages:         history[initLen:],
