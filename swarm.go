@@ -205,117 +205,128 @@ func (s *Swarm) Run(
 	maxTurns int,
 	executeTools bool,
 ) (Response, error) {
-	activeAgent := agent
-	history := make([]llm.Message, len(messages))
-	copy(history, messages)
+	// Use a cloned copy of messages for history
+	history := cloneMessages(messages)
+
 	if contextVariables == nil {
 		contextVariables = make(map[string]interface{})
 	}
 
-	// Initialize memory if not already initialized
-	if activeAgent.Memory == nil {
-		activeAgent.Memory = NewMemoryStore(100)
+	if agent.Memory == nil {
+		agent.Memory = NewMemoryStore(100)
 	}
 
-	initLen := len(messages)
-	turns := 0
-
-	// Store initial user message as memory if it exists
-	if len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleUser {
-		activeAgent.Memory.AddMemory(Memory{
-			Content:   messages[len(messages)-1].Content,
+	if last := lastMessage(messages); last != nil && last.Role == llm.RoleUser {
+		agent.Memory.AddMemory(Memory{
+			Content:   last.Content,
 			Timestamp: time.Now(),
 		})
 	}
 
 	// Get chat completion from LLM
-	resp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
+	resp, err := s.getChatCompletion(ctx, agent, history, contextVariables, modelOverride, stream, debug)
 	if err != nil {
 		return Response{}, err
 	}
 
-	// Process the response
 	if len(resp.Choices) == 0 {
 		return Response{}, fmt.Errorf("no choices in response")
 	}
 
 	choice := resp.Choices[0]
+	history = append(history, choice.Message)
 
-	// Check for tool calls
 	if len(choice.Message.ToolCalls) > 0 && executeTools {
-		var toolResponses []Response
-		var toolResults []ToolResult
-		// Add the assistant's message with tool calls
-		history = append(history, choice.Message)
-
-		for _, toolCall := range choice.Message.ToolCalls {
-			toolResp, err := s.handleToolCall(ctx, &toolCall, activeAgent, contextVariables, debug)
-			if err != nil {
-				return Response{}, err
-			}
-			toolResponses = append(toolResponses, toolResp)
-
-			// Create ToolResult entry
-			var args interface{}
-			_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
-			toolResults = append(toolResults, ToolResult{
-				ToolName: toolCall.Function.Name,
-				Args:     args,
-				Result: Result{
-					Success: true,
-					Data:    toolResp.Messages[0].Content,
-					Error:   nil,
-					Agent:   toolResp.Agent,
-				},
-			})
-
-			// Add the tool response as a function message
-			history = append(history, llm.Message{
-				Role:    llm.RoleFunction,
-				Content: toolResp.Messages[0].Content,
-				Name:    toolCall.Function.Name,
-			})
-			// Update the active agent if the tool result includes an agent transfer
-			if toolResp.Agent != nil {
-				activeAgent = toolResp.Agent
-			}
-		}
-		turns++
-
-		// Get a follow-up response from the AI after tool execution
-		followUpResp, err := s.getChatCompletion(ctx, activeAgent, history, contextVariables, modelOverride, stream, debug)
+		// Handle tool calls in a separate helper function
+		toolResults, updatedHistory, updatedAgent, err := s.handleToolCalls(ctx, choice.Message.ToolCalls, history, agent, contextVariables, modelOverride, stream, debug)
 		if err != nil {
 			return Response{}, err
 		}
+		history = updatedHistory
+		agent = updatedAgent
 
+		// Get follow-up response from LLM (avoid recursive tool calls)
+		followUpResp, err := s.getChatCompletion(ctx, agent, history, contextVariables, modelOverride, stream, debug)
+		if err != nil {
+			return Response{}, err
+		}
 		followUpChoice := followUpResp.Choices[0]
-		// Don't process tool calls in the follow-up response to avoid loops
-		if len(followUpChoice.Message.ToolCalls) > 0 {
-			// Create a new message without the tool calls
-			followUpChoice.Message.ToolCalls = nil
-		}
-		if followUpChoice.Message.Content != "" {
-			history = append(history, followUpChoice.Message)
-		}
+		// Remove any tool calls to avoid loops
+		followUpChoice.Message.ToolCalls = nil
+		// Always append the follow-up message, even if empty
+		history = append(history, followUpChoice.Message)
 
-		// Return response with all messages including the follow-up
 		return Response{
-			Messages:         history[initLen:],
-			Agent:            activeAgent,
+			Messages:         history[len(messages):],
+			Agent:            agent,
 			ContextVariables: contextVariables,
 			ToolResults:      toolResults,
 		}, nil
-	} else {
-		// Add the assistant's message to history
-		history = append(history, choice.Message)
-
-		// Return final response only if there are no tool calls
-		finalResponse := Response{
-			Messages:         history[initLen:],
-			Agent:            activeAgent,
-			ContextVariables: contextVariables,
-			ToolResults:      nil, // No tool calls were made
-		}
-		return finalResponse, nil
 	}
+
+	// No tool calls executed
+	return Response{
+		Messages:         history[len(messages):],
+		Agent:            agent,
+		ContextVariables: contextVariables,
+		ToolResults:      nil,
+	}, nil
+}
+
+// Helper function to clone a slice of messages
+func cloneMessages(msgs []llm.Message) []llm.Message {
+	cloned := make([]llm.Message, len(msgs))
+	copy(cloned, msgs)
+	return cloned
+}
+
+// Helper function to return the last message in a slice
+func lastMessage(msgs []llm.Message) *llm.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	return &msgs[len(msgs)-1]
+}
+
+// Helper method to handle tool calls within the chat loop
+func (s *Swarm) handleToolCalls(
+	ctx context.Context,
+	toolCalls []llm.ToolCall,
+	history []llm.Message,
+	agent *Agent,
+	contextVariables map[string]interface{},
+	modelOverride string,
+	stream bool,
+	debug bool,
+) ([]ToolResult, []llm.Message, *Agent, error) {
+	var toolResults []ToolResult
+	for _, toolCall := range toolCalls {
+		toolResp, err := s.handleToolCall(ctx, &toolCall, agent, contextVariables, debug)
+		if err != nil {
+			return nil, history, agent, err
+		}
+
+		var args interface{}
+		_ = json.Unmarshal([]byte(toolCall.Function.Arguments), &args)
+		toolResults = append(toolResults, ToolResult{
+			ToolName: toolCall.Function.Name,
+			Args:     args,
+			Result: Result{
+				Success: true,
+				Data:    toolResp.Messages[0].Content,
+				Error:   nil,
+				Agent:   toolResp.Agent,
+			},
+		})
+
+		history = append(history, llm.Message{
+			Role:    llm.RoleFunction,
+			Content: toolResp.Messages[0].Content,
+			Name:    toolCall.Function.Name,
+		})
+		if toolResp.Agent != nil {
+			agent = toolResp.Agent
+		}
+	}
+	return toolResults, history, agent, nil
 }
