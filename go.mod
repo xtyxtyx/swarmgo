@@ -5,7 +5,7 @@ go 1.23.4
 require (
 	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.7
 	github.com/google/generative-ai-go v0.18.0
-	github.com/gorilla/websocket v1.5.3
+	github.com/google/uuid v1.6.0
 	github.com/invopop/jsonschema v0.12.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.24
@@ -30,7 +30,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

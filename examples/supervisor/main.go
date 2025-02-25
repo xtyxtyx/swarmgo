@@ -9,7 +9,6 @@ import (
 	dotenv "github.com/joho/godotenv"
 	swarmgo "github.com/prathyushnallamothu/swarmgo"
 	"github.com/prathyushnallamothu/swarmgo/llm"
-	"github.com/prathyushnallamothu/swarmgo/visualization"
 )
 
 func printStepResult(step swarmgo.StepResult) {
@@ -152,10 +151,6 @@ Remember: Always route back to SupervisorAgent using exactly:
 	// Create workflow with supervisor type
 	workflow := swarmgo.NewWorkflow(apiKey, llm.OpenAI, swarmgo.SupervisorWorkflow)
 
-	// Set up visualization
-	visualHook := visualization.NewHook(8080)
-	workflow.SetVisualizationHook(visualHook)
-
 	// Set up cycle handling for revision requests
 	workflow.SetCycleHandling(swarmgo.ContinueOnCycle)
 	workflow.SetCycleCallback(func(from, to string) (bool, error) {
@@ -188,7 +183,6 @@ Remember: Always route back to SupervisorAgent using exactly:
 	// Execute workflow
 	fmt.Println("\n\033[96mStarting Supervisor Workflow\033[0m")
 	fmt.Println("=====================================")
-	fmt.Println("\nVisualization available at: http://localhost:8080")
 
 	result, err := workflow.Execute(supervisorAgent.Name, projectTask)
 	if err != nil {

@@ -42,32 +42,22 @@ const (
 
 // Workflow represents a collection of agents and their connections.
 type Workflow struct {
-	swarm          *Swarm
-	agents         map[string]*Agent
-	connections    map[string][]string
-	workflowType   WorkflowType
-	sharedState    map[string]interface{}
-	agentStates    map[string]map[string]interface{}
-	teams          map[TeamType][]*Agent // Agents grouped by team
-	teamLeaders    map[TeamType]string   // Team leader for each team
-	currentAgent   string              // Track current active agent
-	routingLog     []string           // Log of agent transitions
-	cycleHandling  CycleHandling
-	cycleCallback  func(from, to string) (bool, error) // Callback for cycle detection
-	stepResults    []StepResult      // Track results of each step
-	currentStep    int              // Current step number
-	visualHook     VisualizationHook // Add visualization hook
+	swarm         *Swarm
+	agents        map[string]*Agent
+	connections   map[string][]string
+	workflowType  WorkflowType
+	sharedState   map[string]interface{}
+	agentStates   map[string]map[string]interface{}
+	teams         map[TeamType][]*Agent // Agents grouped by team
+	teamLeaders   map[TeamType]string   // Team leader for each team
+	currentAgent  string                // Track current active agent
+	routingLog    []string              // Log of agent transitions
+	cycleHandling CycleHandling
+	cycleCallback func(from, to string) (bool, error) // Callback for cycle detection
+	stepResults   []StepResult                        // Track results of each step
+	currentStep   int                                 // Current step number
 }
 
-// VisualizationHook defines the interface for workflow visualization
-type VisualizationHook interface {
-	OnWorkflowStart(workflow *Workflow)
-	OnAgentStart(agentName string, step int)
-	OnAgentComplete(agentName string, step int, duration time.Duration)
-	OnMessageSent(fromAgent, toAgent, content string)
-	OnCycleDetected(fromAgent, toAgent string, count int)
-	OnWorkflowEnd(workflow *Workflow)
-}
 
 // NewWorkflow initializes a new Workflow instance.
 func NewWorkflow(apikey string, provider llm.LLMProvider, workflowType WorkflowType) *Workflow {
@@ -96,10 +86,6 @@ func (wf *Workflow) SetCycleHandling(handling CycleHandling) {
 	wf.cycleHandling = handling
 }
 
-// SetVisualizationHook sets the visualization hook for the workflow
-func (wf *Workflow) SetVisualizationHook(hook VisualizationHook) {
-	wf.visualHook = hook
-}
 
 // logTransition logs agent transitions for debugging
 func (wf *Workflow) logTransition(from, to string, reason string) {
@@ -171,10 +157,6 @@ func (wf *Workflow) Execute(startAgent string, userRequest string) (*WorkflowRes
 		return result, errors.New("startAgent does not exist")
 	}
 
-	// Notify visualization of workflow start
-	if wf.visualHook != nil {
-		wf.visualHook.OnWorkflowStart(wf)
-	}
 
 	messageHistory := []llm.Message{{Role: llm.RoleUser, Content: userRequest}}
 	visited := make(map[string]bool)
@@ -192,20 +174,12 @@ func (wf *Workflow) Execute(startAgent string, userRequest string) (*WorkflowRes
 			StepNumber: wf.currentStep + 1,
 		}
 
-		// Notify visualization of agent start
-		if wf.visualHook != nil {
-			wf.visualHook.OnAgentStart(wf.currentAgent, stepResult.StepNumber)
-		}
 
 		// Execute current agent
 		fmt.Printf("\033[96mExecuting agent: %s (Step %d)\033[0m\n", wf.currentAgent, stepResult.StepNumber)
 		response, err := wf.executeAgent(wf.currentAgent, messageHistory)
 		stepResult.EndTime = time.Now()
-		
-		// Notify visualization of agent completion
-		if wf.visualHook != nil {
-			wf.visualHook.OnAgentComplete(wf.currentAgent, stepResult.StepNumber, stepResult.EndTime.Sub(stepResult.StartTime))
-		}
+
 
 		if err != nil {
 			stepResult.Error = err
@@ -218,10 +192,6 @@ func (wf *Workflow) Execute(startAgent string, userRequest string) (*WorkflowRes
 		stepResult.Output = response
 		messageHistory = append(messageHistory, response...)
 
-		// Notify visualization of message sent
-		if wf.visualHook != nil && len(response) > 0 {
-			wf.visualHook.OnMessageSent(wf.currentAgent, stepResult.NextAgent, response[len(response)-1].Content)
-		}
 
 		// Determine next agent
 		nextAgent, shouldContinue := wf.routeToNextAgent(wf.currentAgent, messageHistory)
@@ -242,11 +212,6 @@ func (wf *Workflow) Execute(startAgent string, userRequest string) (*WorkflowRes
 			cycleCount[nextAgent]++
 			reason := fmt.Sprintf("cycle detected (%d times)", cycleCount[nextAgent])
 			wf.logTransition(wf.currentAgent, nextAgent, reason)
-
-			// Notify visualization of cycle detection
-			if wf.visualHook != nil {
-				wf.visualHook.OnCycleDetected(wf.currentAgent, nextAgent, cycleCount[nextAgent])
-			}
 
 			switch wf.cycleHandling {
 			case StopOnCycle:
@@ -280,11 +245,6 @@ func (wf *Workflow) Execute(startAgent string, userRequest string) (*WorkflowRes
 
 	result.EndTime = time.Now()
 	result.FinalOutput = messageHistory
-
-	// Notify visualization of workflow end
-	if wf.visualHook != nil {
-		wf.visualHook.OnWorkflowEnd(wf)
-	}
 
 	return result, nil
 }
@@ -388,10 +348,10 @@ func (wf *Workflow) handleSupervisorRouting(currentAgent string, messageHistory 
 	if currentAgent == supervisorName {
 		// Task classification patterns
 		taskTeams := map[string]TeamType{
-			`(?i)(research|search|find|look up|scrape|collect)`:           ResearchTeam,
-			`(?i)(write|draft|compose|create|document|chart|generate)`:    DocumentTeam,
-			`(?i)(analyze|evaluate|assess|interpret|review|investigate)`:  AnalysisTeam,
-			`(?i)(code|develop|implement|program|debug|test|build)`:       DeveloperTeam,
+			`(?i)(research|search|find|look up|scrape|collect)`:          ResearchTeam,
+			`(?i)(write|draft|compose|create|document|chart|generate)`:   DocumentTeam,
+			`(?i)(analyze|evaluate|assess|interpret|review|investigate)`: AnalysisTeam,
+			`(?i)(code|develop|implement|program|debug|test|build)`:      DeveloperTeam,
 		}
 
 		// Determine appropriate team based on task
@@ -439,12 +399,12 @@ func (wf *Workflow) handleHierarchicalRouting(currentAgent string, messageHistor
 	if strings.Contains(lastMessage.Content, "function") || strings.Contains(lastMessage.Content, "tool") {
 		// Route to appropriate specialized agent based on function type
 		functionPatterns := map[string][]string{
-			`(?i)(search|api)`:                    {"searcher", "web_scraper"},
-			`(?i)(write|text)`:                    {"writer", "note_taker"},
-			`(?i)(chart|graph|plot)`:              {"chart_generator"},
-			`(?i)(analyze|evaluate|assess)`:       {"analyzer", "evaluator"},
-			`(?i)(interpret|review|investigate)`:  {"reviewer", "investigator"},
-			`(?i)(code|program|implement)`:        {"developer", "programmer"},
+			`(?i)(search|api)`:                   {"searcher", "web_scraper"},
+			`(?i)(write|text)`:                   {"writer", "note_taker"},
+			`(?i)(chart|graph|plot)`:             {"chart_generator"},
+			`(?i)(analyze|evaluate|assess)`:      {"analyzer", "evaluator"},
+			`(?i)(interpret|review|investigate)`: {"reviewer", "investigator"},
+			`(?i)(code|program|implement)`:       {"developer", "programmer"},
 			`(?i)(test|debug|fix)`:               {"tester", "debugger"},
 			`(?i)(build|deploy|release)`:         {"builder", "deployer"},
 			`(?i)(optimize|refactor|improve)`:    {"optimizer", "refactorer"},
@@ -626,17 +586,17 @@ func (wf *Workflow) routeSupervisorToWorker(messageHistory []llm.Message) (strin
 
 	// Define task-agent mappings
 	taskPatterns := map[string][]string{
-		`(?i)(research|search|find|look up)`:              {"researcher", "analyst"},
-		`(?i)(write|draft|compose|create)`:                {"writer", "creator"},
-		`(?i)(review|check|validate|verify)`:              {"reviewer", "validator"},
-		`(?i)(analyze|evaluate|assess|interpret)`:         {"analyzer", "evaluator"},
-		`(?i)(investigate|examine|study|explore)`:         {"investigator", "researcher"},
-		`(?i)(calculate|compute|analyze)`:                 {"calculator", "analyst"},
-		`(?i)(summarize|summarise|recap)`:                {"summarizer", "writer"},
-		`(?i)(code|develop|program|implement)`:           {"developer", "programmer"},
-		`(?i)(test|debug|fix|resolve)`:                  {"tester", "debugger"},
-		`(?i)(build|deploy|release|package)`:            {"builder", "deployer"},
-		`(?i)(optimize|refactor|improve)`:               {"optimizer", "refactorer"},
+		`(?i)(research|search|find|look up)`:      {"researcher", "analyst"},
+		`(?i)(write|draft|compose|create)`:        {"writer", "creator"},
+		`(?i)(review|check|validate|verify)`:      {"reviewer", "validator"},
+		`(?i)(analyze|evaluate|assess|interpret)`: {"analyzer", "evaluator"},
+		`(?i)(investigate|examine|study|explore)`: {"investigator", "researcher"},
+		`(?i)(calculate|compute|analyze)`:         {"calculator", "analyst"},
+		`(?i)(summarize|summarise|recap)`:         {"summarizer", "writer"},
+		`(?i)(code|develop|program|implement)`:    {"developer", "programmer"},
+		`(?i)(test|debug|fix|resolve)`:            {"tester", "debugger"},
+		`(?i)(build|deploy|release|package)`:      {"builder", "deployer"},
+		`(?i)(optimize|refactor|improve)`:         {"optimizer", "refactorer"},
 	}
 
 	// Check each pattern and return appropriate agent
@@ -683,21 +643,21 @@ func (wf *Workflow) ConnectAgents(fromAgent, toAgent string) error {
 
 // StepResult represents the outcome of a single workflow step
 type StepResult struct {
-	AgentName    string
-	Input        []llm.Message
-	Output       []llm.Message
-	Error        error
-	StartTime    time.Time
-	EndTime      time.Time
-	NextAgent    string
-	StepNumber   int
+	AgentName  string
+	Input      []llm.Message
+	Output     []llm.Message
+	Error      error
+	StartTime  time.Time
+	EndTime    time.Time
+	NextAgent  string
+	StepNumber int
 }
 
 // WorkflowResult represents the complete workflow execution result
 type WorkflowResult struct {
-	Steps        []StepResult
-	FinalOutput  []llm.Message
-	Error        error
-	StartTime    time.Time
-	EndTime      time.Time
+	Steps       []StepResult
+	FinalOutput []llm.Message
+	Error       error
+	StartTime   time.Time
+	EndTime     time.Time
 }
