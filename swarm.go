@@ -176,6 +176,15 @@ func NewSwarmWithHost(apiKey, host string, provider llm.LLMProvider) *Swarm {
 	return NewSwarm(apiKey, provider)
 }
 
+// NewSwarmWithCustomProvider creates a Swarm with a custom LLM provider implementation
+func NewSwarmWithCustomProvider(providerImpl llm.LLM, config *Config) *Swarm {
+	return &Swarm{
+		client:      providerImpl,
+		initialized: true,
+		config:      config,
+	}
+}
+
 // SetTokenCounter sets a function to count tokens in messages
 func (s *Swarm) SetTokenCounter(counter func(string) int) {
 	s.tokenCounter = counter

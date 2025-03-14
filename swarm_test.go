@@ -53,6 +53,12 @@ func TestNewSwarmWithHost(t *testing.T) {
 	assert.NotNil(t, sw.client)
 }
 
+func TestNewSwarmWithCustomProvider(t *testing.T) {
+	sw := NewSwarmWithCustomProvider(&MockLLM{}, &Config{})
+	assert.NotNil(t, sw)
+	assert.NotNil(t, sw.client)
+}
+
 // TestFunctionToDefinition tests the FunctionToDefinition function
 func TestFunctionToDefinition(t *testing.T) {
 	af := AgentFunction{
