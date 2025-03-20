@@ -49,14 +49,14 @@ func convertToClaudeMessages(messages []Message) []anthropic.MessageParam {
 			if len(msg.ToolCalls) > 0 && i == len(messages)-1 {
 				continue
 			}
-			
+
 			// If there are tool calls, we need to split this into multiple messages
 			if len(msg.ToolCalls) > 0 {
 				// First message: just the text content if any
 				if msg.Content != "" {
 					claudeMessages = append(claudeMessages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)))
 				}
-				
+
 				// Then for each tool call, create a tool use message
 				for _, tc := range msg.ToolCalls {
 					var args interface{}
@@ -65,7 +65,7 @@ func convertToClaudeMessages(messages []Message) []anthropic.MessageParam {
 						toolMsg := anthropic.NewAssistantMessage(
 							anthropic.NewToolUseBlockParam(tc.ID, tc.Function.Name, args))
 						claudeMessages = append(claudeMessages, toolMsg)
-						
+
 						// Add the tool result immediately after if available
 						if result, ok := toolCallMap[tc.Function.Name]; ok {
 							toolResult := anthropic.NewUserMessage(
@@ -303,7 +303,7 @@ func (w *claudeStreamWrapper) Recv() (ChatCompletionResponse, error) {
 
 	message := Message{
 		Role:    RoleAssistant,
-		Content: w.currentContent,
+		Content: "",
 	}
 
 	switch event := event.AsUnion().(type) {
@@ -321,7 +321,7 @@ func (w *claudeStreamWrapper) Recv() (ChatCompletionResponse, error) {
 		delta := event.Delta
 		if delta.Text != "" {
 			w.currentContent += delta.Text
-			message.Content = w.currentContent
+			message.Content = delta.Text
 		}
 		if delta.PartialJSON != "" && w.currentToolCall != nil {
 			if w.currentToolCall.Function.Arguments == "" {
