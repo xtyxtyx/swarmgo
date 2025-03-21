@@ -60,18 +60,21 @@ func convertToClaudeMessages(messages []Message) []anthropic.MessageParam {
 				// Then for each tool call, create a tool use message
 				for _, tc := range msg.ToolCalls {
 					var args interface{}
-					if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
-						// Create the tool use message
-						toolMsg := anthropic.NewAssistantMessage(
-							anthropic.NewToolUseBlockParam(tc.ID, tc.Function.Name, args))
-						claudeMessages = append(claudeMessages, toolMsg)
+					if tc.Function.Arguments == "" {
+						args = map[string]interface{}{}
+					} else if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+						continue
+					}
+					// Create the tool use message
+					toolMsg := anthropic.NewAssistantMessage(
+						anthropic.NewToolUseBlockParam(tc.ID, tc.Function.Name, args))
+					claudeMessages = append(claudeMessages, toolMsg)
 
-						// Add the tool result immediately after if available
-						if result, ok := toolCallMap[tc.Function.Name]; ok {
-							toolResult := anthropic.NewUserMessage(
-								anthropic.NewToolResultBlock(tc.ID, result, false))
-							claudeMessages = append(claudeMessages, toolResult)
-						}
+					// Add the tool result immediately after if available
+					if result, ok := toolCallMap[tc.Function.Name]; ok {
+						toolResult := anthropic.NewUserMessage(
+							anthropic.NewToolResultBlock(tc.ID, result, false))
+						claudeMessages = append(claudeMessages, toolResult)
 					}
 				}
 			} else {
